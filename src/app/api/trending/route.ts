@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { mapWorkToPaper } from "@/lib/openalex";
 import { format, subDays } from "date-fns";
 
+export const runtime = 'edge';
+
 export async function GET() {
   try {
     const oneWeekAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");

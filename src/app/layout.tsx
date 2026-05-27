@@ -13,6 +13,8 @@ export const metadata: Metadata = {
   keywords: ["academic search engine", "research papers", "free paper search", "OpenAlex search", "citation tracking", "scholar search", "academic journal search"],
 };
 
+export const runtime = 'edge';
+
 export default function RootLayout({
   children,
 }: Readonly<{
