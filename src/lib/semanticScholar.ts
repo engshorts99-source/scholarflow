@@ -8,7 +8,7 @@ export async function getPaperTldr(doi: string | null): Promise<string | null> {
   
   try {
     // Semantic Scholar limits without API key are strict. We fetch and return null on failure.
-    const res = await fetch(url, { next: { revalidate: 86400 } });
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return null;
     const data = await res.json();
     return data.tldr?.text || null;
@@ -28,7 +28,7 @@ export async function getBatchTldrs(dois: string[]): Promise<Record<string, stri
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: cleanDois }),
-      next: { revalidate: 86400 }
+      cache: 'no-store'
     });
     
     if (!res.ok) return {};
