@@ -1,3 +1,4 @@
+"use server";
 const BASE_URL = "https://api.semanticscholar.org/graph/v1";
 
 export async function getPaperTldr(doi: string | null): Promise<string | null> {
