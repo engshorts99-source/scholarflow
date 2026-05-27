@@ -70,8 +70,9 @@ export default async function SearchPage({
       }));
       totalCount = searchResult.totalCount;
     }
-  } catch (e: any) {
-    error = `Failed to fetch search results: ${e.message}`;
+  } catch (e: unknown) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    error = `Failed to fetch search results: ${errorMessage}`;
     console.error(e);
   }
 

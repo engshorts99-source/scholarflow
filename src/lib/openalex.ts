@@ -98,7 +98,7 @@ export async function searchPapers(params: SearchParams): Promise<SearchResult> 
     url.searchParams.append("sort", "publication_date:desc");
   }
 
-  url.searchParams.append("mailto", "scholarflow.project@example.com");
+  url.searchParams.append("mailto", "engshorts99@gmail.com");
 
   const res = await fetch(url.toString(), { cache: 'no-store' });
   if (!res.ok) {
@@ -117,7 +117,7 @@ export async function searchPapers(params: SearchParams): Promise<SearchResult> 
 export async function getPaperById(id: string): Promise<Paper | null> {
   const isDoi = id.startsWith("10.");
   const endpoint = isDoi ? `https://doi.org/${id}` : `W${id.replace(/^W/, '')}`;
-  const url = `${BASE_URL}/works/${endpoint}?mailto=scholarflow.project@example.com`;
+  const url = `${BASE_URL}/works/${endpoint}?mailto=engshorts99@gmail.com`;
   
   const res = await fetch(url, { cache: 'no-store' });
   if (res.status === 404) return null;
@@ -154,7 +154,7 @@ export async function searchAuthors(query: string, page: number = 1): Promise<{ 
   url.searchParams.append("search", query);
   url.searchParams.append("page", page.toString());
   url.searchParams.append("per-page", "20");
-  url.searchParams.append("mailto", "scholarflow.project@example.com");
+  url.searchParams.append("mailto", "engshorts99@gmail.com");
 
   const res = await fetch(url.toString(), { cache: 'no-store' });
   if (!res.ok) throw new Error(`OpenAlex API error: ${res.statusText}`);
@@ -169,7 +169,7 @@ export async function searchAuthors(query: string, page: number = 1): Promise<{ 
 
 export async function getAuthorById(id: string): Promise<AuthorProfile | null> {
   const authorId = id.startsWith('A') ? id : `A${id}`;
-  const url = `${BASE_URL}/authors/${authorId}?mailto=scholarflow.project@example.com`;
+  const url = `${BASE_URL}/authors/${authorId}?mailto=engshorts99@gmail.com`;
   
   const res = await fetch(url, { cache: 'no-store' });
   if (res.status === 404) return null;
