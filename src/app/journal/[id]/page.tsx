@@ -1,4 +1,6 @@
 import PaperCard from '@/components/PaperCard';
+
+export const runtime = 'edge';
 import AdUnit from '@/components/AdUnit';
 import { Building, Globe, BookOpen } from 'lucide-react';
 import { mapWorkToPaper } from '@/lib/openalex';

@@ -1,4 +1,6 @@
 import { Suspense } from 'react';
+
+export const runtime = 'edge';
 import SearchBar from '@/components/SearchBar';
 import SortControls from '@/components/SortControls';
 import FilterPanel from '@/components/FilterPanel';

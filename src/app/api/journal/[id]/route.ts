@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+
+export const runtime = 'edge';
+
 import { mapWorkToPaper } from "@/lib/openalex";
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {

@@ -1,4 +1,6 @@
 import { getPaperById } from '@/lib/openalex';
+
+export const runtime = 'edge';
 import { getPaperTldr } from '@/lib/semanticScholar';
 import AdUnit from '@/components/AdUnit';
 import { Quote, ExternalLink, FileText, Calendar, Building } from 'lucide-react';

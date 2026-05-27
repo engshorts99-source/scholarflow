@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+
+export const runtime = 'edge';
 import { searchPapers } from "@/lib/openalex";
 import { getBatchTldrs } from "@/lib/semanticScholar";
 import { SearchParams } from "@/lib/types";
