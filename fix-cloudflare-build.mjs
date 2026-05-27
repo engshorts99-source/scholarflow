@@ -15,13 +15,13 @@ function walk(dir) {
       walk(fullPath);
     } else if (fullPath.endsWith('.js')) {
       let content = fs.readFileSync(fullPath, 'utf8');
-      if (content.includes('from"async_hooks"')) {
-        content = content.replaceAll('from"async_hooks"', 'from"node:async_hooks"');
-        fs.writeFileSync(fullPath, content);
-      }
-      // Also catch spacing variations just in case
-      if (content.includes('from "async_hooks"')) {
-        content = content.replaceAll('from "async_hooks"', 'from "node:async_hooks"');
+      
+      const originalLength = content.length;
+      content = content.replace(/from\s*["']async_hooks["']/g, 'from"node:async_hooks"');
+      content = content.replace(/require\(\s*["']async_hooks["']\s*\)/g, 'require("node:async_hooks")');
+      content = content.replace(/import\s*["']async_hooks["']/g, 'import"node:async_hooks"');
+      
+      if (content.length !== originalLength || content.includes('node:async_hooks')) {
         fs.writeFileSync(fullPath, content);
       }
     }

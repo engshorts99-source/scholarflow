@@ -1,0 +1,11 @@
+				import worker, * as OTHER_EXPORTS from "/Users/pjw/.gemini/antigravity/scratch/scholarflow/.wrangler/tmp/pages-Tb9Qtt/s8fxx4phstc.js";
+				import * as __MIDDLEWARE_0__ from "/Users/pjw/.gemini/antigravity/scratch/scholarflow/node_modules/wrangler/templates/middleware/middleware-ensure-req-body-drained.ts";
+import * as __MIDDLEWARE_1__ from "/Users/pjw/.gemini/antigravity/scratch/scholarflow/node_modules/wrangler/templates/middleware/middleware-miniflare3-json-error.ts";
+
+				export * from "/Users/pjw/.gemini/antigravity/scratch/scholarflow/.wrangler/tmp/pages-Tb9Qtt/s8fxx4phstc.js";
+
+				export const __INTERNAL_WRANGLER_MIDDLEWARE__ = [
+					
+					__MIDDLEWARE_0__.default,__MIDDLEWARE_1__.default
+				]
+				export default worker;
