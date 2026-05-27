@@ -12,8 +12,9 @@ import { getBatchTldrs } from '@/lib/semanticScholar';
 import { SearchParams, Paper, AuthorProfile, JournalProfile } from '@/lib/types';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { FileText, User, BookOpen } from 'lucide-react';
 
-type SearchType = 'papers' | 'authors' | 'journals';
+type SearchType = 'papers' | 'authors' | 'journals' | 'all';
 
 export default function ClientSearch() {
   const searchParams = useSearchParams();
@@ -24,7 +25,7 @@ export default function ClientSearch() {
   
   // Determine search type
   const typeParam = searchParams.get('type');
-  const searchType: SearchType = typeParam === 'author' ? 'authors' : typeParam === 'journal' ? 'journals' : 'papers';
+  const searchType: SearchType = typeParam === 'author' ? 'authors' : typeParam === 'journal' ? 'journals' : typeParam === 'all' ? 'all' : 'papers';
   
   const [paperResults, setPaperResults] = useState<Paper[]>([]);
   const [authorResults, setAuthorResults] = useState<AuthorProfile[]>([]);
@@ -43,7 +44,33 @@ export default function ClientSearch() {
       setJournalResults([]);
       
       try {
-        if (searchType === 'authors') {
+        if (searchType === 'all' && q) {
+          // Unified search: fetch papers, authors, and journals in parallel
+          const [papersRes, authorsRes, journalsRes] = await Promise.all([
+            searchPapers({ q, page: 1, sort: sort as SearchParams['sort'] }).catch(() => ({ results: [], totalCount: 0, page: 1 })),
+            searchAuthors(q, 1).catch(() => ({ results: [], totalCount: 0, page: 1 })),
+            searchJournals(q, 1).catch(() => ({ results: [], totalCount: 0, page: 1 })),
+          ]);
+          
+          if (!isMounted) return;
+          
+          // Get TLDRs for papers
+          const dois = papersRes.results.slice(0, 5).map(p => p.doi).filter((doi): doi is string => doi !== null);
+          let tldrs: Record<string, string> = {};
+          if (dois.length > 0) {
+            tldrs = await getBatchTldrs(dois);
+          }
+          
+          if (isMounted) {
+            setPaperResults(papersRes.results.slice(0, 5).map(paper => ({
+              ...paper,
+              tldr: paper.doi ? tldrs[paper.doi.toLowerCase().replace("https://doi.org/", "")] || null : null
+            })));
+            setAuthorResults(authorsRes.results.slice(0, 3));
+            setJournalResults(journalsRes.results.slice(0, 3));
+            setTotalCount(papersRes.totalCount + authorsRes.totalCount + journalsRes.totalCount);
+          }
+        } else if (searchType === 'authors') {
           const searchResult = await searchAuthors(q, page);
           if (isMounted) {
             setAuthorResults(searchResult.results);
@@ -104,16 +131,11 @@ export default function ClientSearch() {
 
   const totalPages = Math.ceil(totalCount / 20);
 
-  const typeLabels: Record<SearchType, string> = {
-    papers: 'Papers',
-    authors: 'Authors',
-    journals: 'Journals',
-  };
-
   const typeParamValue: Record<SearchType, string> = {
     papers: '',
     authors: 'author',
     journals: 'journal',
+    all: 'all',
   };
 
   return (
@@ -128,10 +150,15 @@ export default function ClientSearch() {
             <Suspense fallback={<div className="h-64 bg-white/5 rounded-xl animate-pulse"></div>}>
               <FilterPanel />
             </Suspense>
+          ) : searchType === 'all' ? (
+            <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
+              <h3 className="font-medium text-white">Unified Search</h3>
+              <p className="text-sm text-gray-500">Showing top results across papers, authors, and journals. Click a category to see all results.</p>
+            </div>
           ) : searchType === 'journals' ? (
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
               <h3 className="font-medium text-white">Journal Search</h3>
-              <p className="text-sm text-gray-500">Search for academic journals by name, publisher, or ISSN. Click on a journal to see its profile and papers.</p>
+              <p className="text-sm text-gray-500">Search for academic journals by name, publisher, or ISSN.</p>
             </div>
           ) : (
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
@@ -148,7 +175,7 @@ export default function ClientSearch() {
         <div className="flex-1 min-w-0">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <h1 className="text-xl font-medium text-white">
-              {q ? `Results for "${q}"` : `All ${typeLabels[searchType]}`}
+              {q ? `Results for "${q}"` : `All Results`}
               {!loading && <span className="text-gray-500 text-sm ml-3">{totalCount.toLocaleString()} found</span>}
             </h1>
             
@@ -178,44 +205,114 @@ export default function ClientSearch() {
             </div>
           )}
 
-          <div className="space-y-4">
-            {searchType === 'journals' ? (
-              journalResults.map((journal, index) => (
-                <div key={journal.id}>
-                  <JournalCard journal={journal} />
-                  {(index + 1) % 6 === 0 && (
-                    <div className="my-6">
-                      <AdUnit slotId={`inline-ad-journal-${index}`} width={0} height={90} className="w-full h-[90px]" />
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : searchType === 'authors' ? (
-              authorResults.map((author, index) => (
-                <div key={author.id}>
-                  <AuthorCard author={author} />
-                  {(index + 1) % 6 === 0 && (
-                    <div className="my-6">
-                      <AdUnit slotId={`inline-ad-author-${index}`} width={0} height={90} className="w-full h-[90px]" />
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
-              paperResults.map((paper, index) => (
-                <div key={paper.id}>
-                  <PaperCard paper={paper} />
-                  {(index + 1) % 6 === 0 && (
-                    <div className="my-6">
-                      <AdUnit slotId={`inline-ad-paper-${index}`} width={0} height={90} className="w-full h-[90px]" />
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
+          {/* Unified "All" search results */}
+          {searchType === 'all' && !loading && !error && (
+            <div className="space-y-10">
+              {/* Papers section */}
+              {paperResults.length > 0 && (
+                <section>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-blue-400" /> Papers
+                    </h2>
+                    <Link href={`/search?q=${encodeURIComponent(q)}`} className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                      View all papers →
+                    </Link>
+                  </div>
+                  <div className="space-y-3">
+                    {paperResults.map(paper => (
+                      <PaperCard key={paper.id} paper={paper} />
+                    ))}
+                  </div>
+                </section>
+              )}
 
-          {!loading && totalPages > 1 && (
+              {/* Authors section */}
+              {authorResults.length > 0 && (
+                <section>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <User className="w-5 h-5 text-mint-400" /> Authors
+                    </h2>
+                    <Link href={`/search?type=author&q=${encodeURIComponent(q)}`} className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                      View all authors →
+                    </Link>
+                  </div>
+                  <div className="space-y-3">
+                    {authorResults.map(author => (
+                      <AuthorCard key={author.id} author={author} />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Journals section */}
+              {journalResults.length > 0 && (
+                <section>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <BookOpen className="w-5 h-5 text-purple-400" /> Journals
+                    </h2>
+                    <Link href={`/search?type=journal&q=${encodeURIComponent(q)}`} className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                      View all journals →
+                    </Link>
+                  </div>
+                  <div className="space-y-3">
+                    {journalResults.map(journal => (
+                      <JournalCard key={journal.id} journal={journal} />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <div className="my-6">
+                <AdUnit slotId="all-results-bottom" width={0} height={90} className="w-full h-[90px]" />
+              </div>
+            </div>
+          )}
+
+          {/* Individual type results */}
+          {searchType !== 'all' && (
+            <div className="space-y-4">
+              {searchType === 'journals' ? (
+                journalResults.map((journal, index) => (
+                  <div key={journal.id}>
+                    <JournalCard journal={journal} />
+                    {(index + 1) % 6 === 0 && (
+                      <div className="my-6">
+                        <AdUnit slotId={`inline-ad-journal-${index}`} width={0} height={90} className="w-full h-[90px]" />
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : searchType === 'authors' ? (
+                authorResults.map((author, index) => (
+                  <div key={author.id}>
+                    <AuthorCard author={author} />
+                    {(index + 1) % 6 === 0 && (
+                      <div className="my-6">
+                        <AdUnit slotId={`inline-ad-author-${index}`} width={0} height={90} className="w-full h-[90px]" />
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                paperResults.map((paper, index) => (
+                  <div key={paper.id}>
+                    <PaperCard paper={paper} />
+                    {(index + 1) % 6 === 0 && (
+                      <div className="my-6">
+                        <AdUnit slotId={`inline-ad-paper-${index}`} width={0} height={90} className="w-full h-[90px]" />
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* Pagination (not for 'all' type) */}
+          {searchType !== 'all' && !loading && totalPages > 1 && (
             <div className="mt-10 flex items-center justify-center gap-2">
               {page > 1 && (
                 <Link 

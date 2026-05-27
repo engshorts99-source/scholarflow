@@ -96,9 +96,15 @@ export async function searchPapers(params: SearchParams): Promise<SearchResult> 
   if (params.yearFrom && params.yearTo) {
     filters.push(`publication_year:${params.yearFrom}-${params.yearTo}`);
   } else if (params.yearFrom) {
-    filters.push(`publication_year:${params.yearFrom}-2050`);
+    const currentYear = new Date().getFullYear();
+    filters.push(`publication_year:${params.yearFrom}-${currentYear}`);
   } else if (params.yearTo) {
     filters.push(`publication_year:1900-${params.yearTo}`);
+  }
+  // Always cap at today's date to prevent future-dated papers from appearing
+  if (!params.yearTo && !params.yearFrom) {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    filters.push(`to_publication_date:${today}`);
   }
   if (params.oaOnly) {
     filters.push("open_access.is_oa:true");

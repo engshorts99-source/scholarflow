@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, User, FileText, BookOpen } from 'lucide-react';
+import { Search, User, FileText, BookOpen, Layers } from 'lucide-react';
 
-type SearchType = "papers" | "authors" | "journals";
+type SearchType = "papers" | "authors" | "journals" | "all";
 
 export default function SearchBar({ initialQuery = "", size = "default", initialType = "papers" }: { initialQuery?: string, size?: "large" | "default", initialType?: SearchType }) {
   const [query, setQuery] = useState(initialQuery);
@@ -15,30 +15,37 @@ export default function SearchBar({ initialQuery = "", size = "default", initial
     e.preventDefault();
     if (!query.trim()) return;
     
+    const q = encodeURIComponent(query.trim());
+    
     if (searchType === "authors") {
-      router.push(`/search?type=author&q=${encodeURIComponent(query.trim())}`);
+      router.push(`/search?type=author&q=${q}`);
     } else if (searchType === "journals") {
-      router.push(`/search?type=journal&q=${encodeURIComponent(query.trim())}`);
+      router.push(`/search?type=journal&q=${q}`);
+    } else if (searchType === "all") {
+      router.push(`/search?type=all&q=${q}`);
     } else {
-      router.push(`/search?q=${encodeURIComponent(query.trim())}`);
+      router.push(`/search?q=${q}`);
     }
   };
 
   const isLarge = size === "large";
 
   const tabs: { type: SearchType; label: string; icon: React.ReactNode; activeColor: string }[] = [
+    { type: "all", label: "All", icon: <Layers className="w-4 h-4" />, activeColor: "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm" },
     { type: "papers", label: "Papers", icon: <FileText className="w-4 h-4" />, activeColor: "bg-blue-600 text-white shadow-sm" },
     { type: "authors", label: "Authors", icon: <User className="w-4 h-4" />, activeColor: "bg-mint-600 text-white shadow-sm" },
     { type: "journals", label: "Journals", icon: <BookOpen className="w-4 h-4" />, activeColor: "bg-purple-600 text-white shadow-sm" },
   ];
 
   const placeholders: Record<SearchType, string> = {
+    all: "Search papers, authors, and journals at once...",
     papers: "Search 250M+ papers by title, DOI, or keyword...",
     authors: "Search for authors, researchers, professors...",
     journals: "Search journals by name (e.g., Nature, Science, Cell)...",
   };
 
   const buttonColors: Record<SearchType, string> = {
+    all: "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500",
     papers: "bg-blue-600 hover:bg-blue-500",
     authors: "bg-mint-600 hover:bg-mint-500",
     journals: "bg-purple-600 hover:bg-purple-500",
@@ -47,7 +54,7 @@ export default function SearchBar({ initialQuery = "", size = "default", initial
   return (
     <div className="w-full max-w-3xl mx-auto flex flex-col gap-3">
       {/* Type Toggle */}
-      <div className="flex items-center gap-2 px-1">
+      <div className="flex items-center gap-1.5 px-1 flex-wrap">
         {tabs.map(tab => (
           <button
             key={tab.type}
