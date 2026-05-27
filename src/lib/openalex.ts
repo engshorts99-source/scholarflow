@@ -129,7 +129,7 @@ export async function getPaperById(id: string): Promise<Paper | null> {
 
 function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
   return {
-    id: data.id.replace("https://openalex.org/", ""),
+    id: data.id?.replace("https://openalex.org/", "") || "",
     displayName: data.display_name,
     alternatives: data.display_name_alternatives || [],
     worksCount: data.works_count || 0,
@@ -141,7 +141,7 @@ function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
       type: data.last_known_institution.type,
     } : null,
     concepts: (data.x_concepts || []).slice(0, 5).map((c: any) => ({
-      id: c.id.replace("https://openalex.org/", ""),
+      id: c.id?.replace("https://openalex.org/", "") || "",
       displayName: c.display_name,
       score: c.score,
     })),
