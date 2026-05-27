@@ -20,7 +20,7 @@ function reconstructAbstract(invertedIndex: Record<string, number[]> | null): st
 // Map OpenAlex work to our Paper type
 export function mapWorkToPaper(work: any): Paper {
   return {
-    id: work.id.replace("https://openalex.org/", ""),
+    id: work.id?.replace("https://openalex.org/", "") || "",
     doi: work.doi,
     title: work.title || work.display_name,
     publicationDate: work.publication_date,
@@ -36,18 +36,18 @@ export function mapWorkToPaper(work: any): Paper {
     isOpenAccess: work.open_access?.is_oa || false,
     pdfUrl: work.open_access?.oa_url || null,
     journal: work.primary_location?.source ? {
-      id: work.primary_location.source.id.replace("https://openalex.org/", ""),
+      id: work.primary_location.source.id?.replace("https://openalex.org/", "") || "",
       displayName: work.primary_location.source.display_name,
       issn: work.primary_location.source.issn,
       publisher: work.primary_location.source.host_organization_name,
     } : null,
     concepts: (work.concepts || []).map((c: any) => ({
-      id: c.id.replace("https://openalex.org/", ""),
+      id: c.id?.replace("https://openalex.org/", "") || "",
       displayName: c.display_name,
       level: c.level,
     })),
-    referencedWorks: (work.referenced_works || []).map((rw: string) => rw.replace("https://openalex.org/", "")),
-    relatedWorks: (work.related_works || []).map((rw: string) => rw.replace("https://openalex.org/", "")),
+    referencedWorks: (work.referenced_works || []).map((rw: string) => rw?.replace("https://openalex.org/", "") || ""),
+    relatedWorks: (work.related_works || []).map((rw: string) => rw?.replace("https://openalex.org/", "") || ""),
   };
 }
 

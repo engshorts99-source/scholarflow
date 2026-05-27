@@ -1,0 +1,20 @@
+
+> scholarflow@0.1.0 start
+> next start
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 122ms
+TypeError [ERR_INVALID_STATE]: Invalid state: WritableStream is closed
+    at writableStreamClose (node:internal/webstreams/writablestream:724:7)
+    at InternalWritableStream.close (node:internal/webstreams/writablestream:234:12)
+    at i.pipeTo (/Users/pjw/.gemini/antigravity/scratch/scholarflow/.next/server/edge-chunks/665.js:23:34083)
+    at async e7.sendRenderResult (/Users/pjw/.gemini/antigravity/scratch/scholarflow/.next/server/edge-chunks/665.js:16:5757)
+    at async e7.pipeImpl (/Users/pjw/.gemini/antigravity/scratch/scholarflow/.next/server/edge-chunks/665.js:2:15927)
+    at async e7.handleCatchallRenderRequest (/Users/pjw/.gemini/antigravity/scratch/scholarflow/.next/server/edge-chunks/665.js:16:3270)
+    at async e7.runImpl (/Users/pjw/.gemini/antigravity/scratch/scholarflow/.next/server/edge-chunks/665.js:2:15411)
+    at async e7.handleRequestImpl (/Users/pjw/.gemini/antigravity/scratch/scholarflow/.next/server/edge-chunks/665.js:2:14368) {
+  code: 'ERR_INVALID_STATE'
+}
