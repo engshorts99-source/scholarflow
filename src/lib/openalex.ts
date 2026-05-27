@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Paper, SearchParams, SearchResult } from "./types";
+import { Paper, SearchParams, SearchResult, AuthorProfile } from "./types";
 
 const BASE_URL = "https://api.openalex.org";
 
@@ -63,6 +63,9 @@ export async function searchPapers(params: SearchParams): Promise<SearchResult> 
   if (params.journalId) {
     filters.push(`primary_location.source.id:${params.journalId}`);
   }
+  if (params.authorId) {
+    filters.push(`author.id:${params.authorId}`);
+  }
   if (params.yearFrom && params.yearTo) {
     filters.push(`publication_year:${params.yearFrom}-${params.yearTo}`);
   } else if (params.yearFrom) {
@@ -122,4 +125,56 @@ export async function getPaperById(id: string): Promise<Paper | null> {
   
   const data = await res.json();
   return mapWorkToPaper(data);
+}
+
+function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
+  return {
+    id: data.id.replace("https://openalex.org/", ""),
+    displayName: data.display_name,
+    alternatives: data.display_name_alternatives || [],
+    worksCount: data.works_count || 0,
+    citedByCount: data.cited_by_count || 0,
+    lastKnownInstitution: data.last_known_institution ? {
+      id: data.last_known_institution.id?.replace("https://openalex.org/", "") || "",
+      displayName: data.last_known_institution.display_name,
+      countryCode: data.last_known_institution.country_code,
+      type: data.last_known_institution.type,
+    } : null,
+    concepts: (data.x_concepts || []).slice(0, 5).map((c: any) => ({
+      id: c.id.replace("https://openalex.org/", ""),
+      displayName: c.display_name,
+      score: c.score,
+    })),
+    countsByYear: data.counts_by_year || [],
+  };
+}
+
+export async function searchAuthors(query: string, page: number = 1): Promise<{ results: AuthorProfile[], totalCount: number, page: number }> {
+  const url = new URL(`${BASE_URL}/authors`);
+  url.searchParams.append("search", query);
+  url.searchParams.append("page", page.toString());
+  url.searchParams.append("per-page", "20");
+  url.searchParams.append("mailto", "scholarflow.project@example.com");
+
+  const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+  if (!res.ok) throw new Error(`OpenAlex API error: ${res.statusText}`);
+  const data = await res.json();
+
+  return {
+    results: data.results.map(mapOpenAlexAuthorToProfile),
+    totalCount: data.meta.count,
+    page: data.meta.page,
+  };
+}
+
+export async function getAuthorById(id: string): Promise<AuthorProfile | null> {
+  const authorId = id.startsWith('A') ? id : `A${id}`;
+  const url = `${BASE_URL}/authors/${authorId}?mailto=scholarflow.project@example.com`;
+  
+  const res = await fetch(url, { next: { revalidate: 3600 } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`OpenAlex API error: ${res.statusText}`);
+  
+  const data = await res.json();
+  return mapOpenAlexAuthorToProfile(data);
 }

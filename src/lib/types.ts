@@ -43,10 +43,35 @@ export interface SearchParams {
   yearFrom?: string;
   yearTo?: string;
   oaOnly?: boolean;
+  authorId?: string;
 }
 
 export interface SearchResult {
   results: Paper[];
   totalCount: number;
   page: number;
+}
+
+export interface AuthorProfile {
+  id: string;
+  displayName: string;
+  alternatives: string[];
+  worksCount: number;
+  citedByCount: number;
+  lastKnownInstitution: {
+    id: string;
+    displayName: string;
+    countryCode: string;
+    type: string;
+  } | null;
+  concepts: {
+    id: string;
+    displayName: string;
+    score: number;
+  }[];
+  countsByYear: {
+    year: number;
+    worksCount: number;
+    citedByCount: number;
+  }[];
 }
