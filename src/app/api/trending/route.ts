@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { mapWorkToPaper } from "@/lib/openalex";
 import { format, subDays } from "date-fns";
 
+export const runtime = 'edge';
 
 export async function GET() {
   try {

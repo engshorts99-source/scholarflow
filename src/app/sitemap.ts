@@ -1,6 +1,7 @@
 import { MetadataRoute } from 'next';
 import { format, subDays } from 'date-fns';
 
+export const runtime = 'edge';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = 'https://scholarflow.pages.dev';

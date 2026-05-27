@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+export const runtime = 'edge';
 
 import { getPaperById } from "@/lib/openalex";
 import { getPaperTldr } from "@/lib/semanticScholar";

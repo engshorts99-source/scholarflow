@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import ClientSearch from './ClientSearch';
 
+export const runtime = 'edge';
 
 export async function generateMetadata({ searchParams }: { searchParams: { [key: string]: string | string[] | undefined } }) {
   const q = searchParams.q as string;
