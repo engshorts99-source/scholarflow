@@ -9,9 +9,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        background: "hsl(225, 20%, 7%)",
+        foreground: "hsl(0, 0%, 92%)",
+        mint: {
+          400: "hsl(160, 75%, 60%)",
+          500: "hsl(160, 75%, 48%)",
+        }
       },
+      fontFamily: {
+        space: ["var(--font-space-grotesk)", "sans-serif"],
+        sans: ["var(--font-inter)", "sans-serif"],
+      }
     },
   },
   plugins: [],
