@@ -4,10 +4,6 @@ import { Paper } from '@/lib/types';
 import { format } from 'date-fns';
 
 export default function PaperCard({ paper }: { paper: Paper }) {
-  // Format authors
-  const authorText = paper.authors.slice(0, 3).map(a => a.name).join(", ") + 
-                     (paper.authors.length > 3 ? " et al." : "");
-                     
   // Citation badge color
   let badgeColor = "bg-gray-800 text-gray-300 border-gray-700";
   if (paper.citedByCount >= 1000) badgeColor = "bg-red-500/10 text-red-400 border-red-500/20";
@@ -25,11 +21,37 @@ export default function PaperCard({ paper }: { paper: Paper }) {
           </Link>
           
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400">
-            <span>{authorText}</span>
+            {/* Clickable Authors */}
+            <span className="flex flex-wrap items-center gap-x-1">
+              {paper.authors.slice(0, 3).map((author, i) => (
+                <span key={author.id || i}>
+                  {author.id ? (
+                    <Link 
+                      href={`/author/${author.id}`} 
+                      className="hover:text-blue-400 transition-colors underline decoration-dotted underline-offset-2 decoration-gray-600 hover:decoration-blue-400"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {author.name}
+                    </Link>
+                  ) : (
+                    <span>{author.name}</span>
+                  )}
+                  {i < Math.min(paper.authors.length, 3) - 1 && <span>,&nbsp;</span>}
+                </span>
+              ))}
+              {paper.authors.length > 3 && <span> et al.</span>}
+            </span>
+            
             {paper.journal && (
               <>
                 <span className="h-1 w-1 rounded-full bg-gray-600" />
-                <span className="italic truncate max-w-[200px] sm:max-w-xs">{paper.journal.displayName}</span>
+                <Link 
+                  href={`/journal/${paper.journal.id}`}
+                  className="italic truncate max-w-[200px] sm:max-w-xs hover:text-blue-400 transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {paper.journal.displayName}
+                </Link>
               </>
             )}
             <span className="h-1 w-1 rounded-full bg-gray-600" />

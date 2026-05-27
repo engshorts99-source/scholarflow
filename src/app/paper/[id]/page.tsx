@@ -1,16 +1,23 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { getPaperById } from '@/lib/openalex';
+import { getPaperById, searchPapers } from '@/lib/openalex';
 import { getPaperTldr } from '@/lib/semanticScholar';
 import AdUnit from '@/components/AdUnit';
-import { Quote, ExternalLink, FileText, Calendar, Building } from 'lucide-react';
+import PaperCard from '@/components/PaperCard';
+import { Quote, ExternalLink, FileText, Calendar, Building, ArrowUpRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { Paper } from '@/lib/types';
 
 export default function PaperPage({ params }: { params: { id: string } }) {
   const [paper, setPaper] = useState<any>(null);
   const [tldr, setTldr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Citation tracking state
+  const [citingPapers, setCitingPapers] = useState<Paper[]>([]);
+  const [citingCount, setCitingCount] = useState(0);
+  const [citingLoading, setCitingLoading] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -24,6 +31,26 @@ export default function PaperPage({ params }: { params: { id: string } }) {
         if (paperData && paperData.doi) {
           const tldrData = await getPaperTldr(paperData.doi);
           if (isMounted) setTldr(tldrData);
+        }
+        
+        // Fetch papers that cite this work
+        if (paperData && paperData.citedByCount > 0) {
+          setCitingLoading(true);
+          try {
+            const citingResult = await searchPapers({ 
+              citesId: paperData.id,
+              sort: 'citations',
+              page: 1
+            });
+            if (isMounted) {
+              setCitingPapers(citingResult.results.slice(0, 10));
+              setCitingCount(citingResult.totalCount);
+            }
+          } catch (citErr) {
+            console.error("Failed to fetch citing papers:", citErr);
+          } finally {
+            if (isMounted) setCitingLoading(false);
+          }
         }
       } catch (err: any) {
         if (isMounted) setError(err.message || 'Failed to load paper');
@@ -67,20 +94,30 @@ export default function PaperPage({ params }: { params: { id: string } }) {
             <div className="flex flex-wrap items-center gap-4 text-gray-400 text-sm">
               <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4" /> {paper.publicationDate || paper.publicationYear}</span>
               {paper.journal && (
-                <Link href={`/journal/${paper.journal.id}`} className="flex items-center gap-1.5 hover:text-white transition-colors">
+                <Link href={`/journal/${paper.journal.id}`} className="flex items-center gap-1.5 hover:text-blue-400 transition-colors">
                   <Building className="w-4 h-4" /> {paper.journal.displayName}
                 </Link>
               )}
             </div>
           </div>
 
-          {/* Authors */}
+          {/* Authors - now clickable */}
           <div className="space-y-3">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Authors</h3>
             <div className="flex flex-wrap gap-x-5 gap-y-3 text-gray-300">
               {paper.authors.map((author: any, i: number) => (
                 <div key={author.id || i} className="flex flex-col">
-                  <span className="text-blue-400 font-medium">{author.name}</span>
+                  {author.id ? (
+                    <Link 
+                      href={`/author/${author.id}`}
+                      className="text-blue-400 font-medium hover:text-blue-300 transition-colors flex items-center gap-1 group"
+                    >
+                      {author.name}
+                      <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </Link>
+                  ) : (
+                    <span className="text-blue-400 font-medium">{author.name}</span>
+                  )}
                   {author.institution && <span className="text-xs text-gray-500 max-w-[200px] truncate">{author.institution}</span>}
                 </div>
               ))}
@@ -121,6 +158,45 @@ export default function PaperPage({ params }: { params: { id: string } }) {
           
           <div className="my-10 border-t border-white/10 pt-8">
             <AdUnit slotId="paper-inline" width={0} height={90} className="w-full" />
+          </div>
+
+          {/* Citation Tracking Section */}
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-white font-space flex items-center gap-2">
+                <Quote className="w-5 h-5 text-yellow-500" />
+                Papers Citing This Work
+                {citingCount > 0 && (
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    ({citingCount.toLocaleString()} total)
+                  </span>
+                )}
+              </h3>
+              {citingCount > 10 && (
+                <Link 
+                  href={`/search?citesId=${paper.id}&sort=citations`}
+                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  View all →
+                </Link>
+              )}
+            </div>
+
+            {citingLoading ? (
+              <div className="py-10 flex justify-center">
+                <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+              </div>
+            ) : citingPapers.length > 0 ? (
+              <div className="space-y-4">
+                {citingPapers.map((citingPaper) => (
+                  <PaperCard key={citingPaper.id} paper={citingPaper} />
+                ))}
+              </div>
+            ) : paper.citedByCount > 0 ? (
+              <p className="text-gray-500 text-sm py-6">Unable to load citing papers at this time.</p>
+            ) : (
+              <p className="text-gray-500 text-sm py-6">No papers have cited this work yet.</p>
+            )}
           </div>
         </div>
 

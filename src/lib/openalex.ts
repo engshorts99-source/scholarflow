@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Paper, SearchParams, SearchResult, AuthorProfile } from "./types";
+import { Paper, SearchParams, SearchResult, AuthorProfile, JournalProfile } from "./types";
 
 const BASE_URL = "https://api.openalex.org";
 
@@ -77,10 +77,21 @@ export async function searchPapers(params: SearchParams): Promise<SearchResult> 
     filters.push(`default.search:${encodeURIComponent(params.q)}`);
   }
   if (params.journalId) {
-    filters.push(`primary_location.source.id:${params.journalId}`);
+    // Support multiple journal IDs separated by | (pipe)
+    const journalIds = params.journalId.split(',').map(id => id.trim()).filter(Boolean);
+    if (journalIds.length > 1) {
+      filters.push(`primary_location.source.id:${journalIds.join('|')}`);
+    } else {
+      filters.push(`primary_location.source.id:${journalIds[0]}`);
+    }
   }
   if (params.authorId) {
     filters.push(`author.id:${params.authorId}`);
+  }
+  if (params.citesId) {
+    // Citation tracking: find papers that cite a specific work
+    const citesWorkId = params.citesId.startsWith('W') ? params.citesId : `W${params.citesId}`;
+    filters.push(`cites:${citesWorkId}`);
   }
   if (params.yearFrom && params.yearTo) {
     filters.push(`publication_year:${params.yearFrom}-${params.yearTo}`);
@@ -195,7 +206,7 @@ export async function getAuthorById(id: string): Promise<AuthorProfile | null> {
   return mapOpenAlexAuthorToProfile(data);
 }
 
-export async function getJournalById(id: string): Promise<any | null> {
+export async function getJournalById(id: string): Promise<JournalProfile | null> {
   const sourceId = id.startsWith('S') ? id : `S${id}`;
   const url = `${BASE_URL}/sources/${sourceId}?mailto=engshorts99@gmail.com`;
   
@@ -207,10 +218,41 @@ export async function getJournalById(id: string): Promise<any | null> {
   return {
     id: data.id.replace("https://openalex.org/", ""),
     displayName: data.display_name,
-    issn: data.issn,
-    publisher: data.host_organization_name,
-    worksCount: data.works_count,
-    citedByCount: data.cited_by_count,
-    homepageUrl: data.homepage_url
+    issn: data.issn || [],
+    issnL: data.issn_l || null,
+    publisher: data.host_organization_name || null,
+    worksCount: data.works_count || 0,
+    citedByCount: data.cited_by_count || 0,
+    homepageUrl: data.homepage_url || null,
+    type: data.type || null,
+  };
+}
+
+export async function searchJournals(query: string, page: number = 1): Promise<{ results: JournalProfile[], totalCount: number, page: number }> {
+  const url = new URL(`${BASE_URL}/sources`);
+  url.searchParams.append("search", query);
+  url.searchParams.append("filter", "type:journal");
+  url.searchParams.append("page", page.toString());
+  url.searchParams.append("per-page", "20");
+  url.searchParams.append("mailto", "engshorts99@gmail.com");
+
+  const res = await fetchOpenAlex(url.toString());
+  if (!res.ok) throw new Error(`OpenAlex API error: ${res.statusText}`);
+  const data = await res.json();
+
+  return {
+    results: data.results.map((d: any): JournalProfile => ({
+      id: d.id?.replace("https://openalex.org/", "") || "",
+      displayName: d.display_name,
+      issn: d.issn || [],
+      issnL: d.issn_l || null,
+      publisher: d.host_organization_name || null,
+      worksCount: d.works_count || 0,
+      citedByCount: d.cited_by_count || 0,
+      homepageUrl: d.homepage_url || null,
+      type: d.type || null,
+    })),
+    totalCount: data.meta.count,
+    page: data.meta.page,
   };
 }

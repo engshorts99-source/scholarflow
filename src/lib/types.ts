@@ -29,6 +29,18 @@ export interface Journal {
   publisher?: string;
 }
 
+export interface JournalProfile {
+  id: string;
+  displayName: string;
+  issn: string[];
+  issnL: string | null;
+  publisher: string | null;
+  worksCount: number;
+  citedByCount: number;
+  homepageUrl: string | null;
+  type: string | null;
+}
+
 export interface Concept {
   id: string;
   displayName: string;
@@ -44,6 +56,7 @@ export interface SearchParams {
   yearTo?: string;
   oaOnly?: boolean;
   authorId?: string;
+  citesId?: string; // For citation tracking: find papers that cite this work
 }
 
 export interface SearchResult {

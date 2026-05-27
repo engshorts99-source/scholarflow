@@ -5,12 +5,15 @@ import SortControls from '@/components/SortControls';
 import FilterPanel from '@/components/FilterPanel';
 import PaperCard from '@/components/PaperCard';
 import AuthorCard from '@/components/AuthorCard';
+import JournalCard from '@/components/JournalCard';
 import AdUnit from '@/components/AdUnit';
-import { searchPapers, searchAuthors } from '@/lib/openalex';
+import { searchPapers, searchAuthors, searchJournals } from '@/lib/openalex';
 import { getBatchTldrs } from '@/lib/semanticScholar';
-import { SearchParams, Paper, AuthorProfile } from '@/lib/types';
+import { SearchParams, Paper, AuthorProfile, JournalProfile } from '@/lib/types';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+
+type SearchType = 'papers' | 'authors' | 'journals';
 
 export default function ClientSearch() {
   const searchParams = useSearchParams();
@@ -18,10 +21,14 @@ export default function ClientSearch() {
   const q = searchParams.get('q') || '';
   const page = parseInt(searchParams.get('page') || '1');
   const sort = searchParams.get('sort') || undefined;
-  const searchType = searchParams.get('type') === 'author' ? 'authors' : 'papers';
+  
+  // Determine search type
+  const typeParam = searchParams.get('type');
+  const searchType: SearchType = typeParam === 'author' ? 'authors' : typeParam === 'journal' ? 'journals' : 'papers';
   
   const [paperResults, setPaperResults] = useState<Paper[]>([]);
   const [authorResults, setAuthorResults] = useState<AuthorProfile[]>([]);
+  const [journalResults, setJournalResults] = useState<JournalProfile[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,12 +40,19 @@ export default function ClientSearch() {
       setError(null);
       setPaperResults([]);
       setAuthorResults([]);
+      setJournalResults([]);
       
       try {
         if (searchType === 'authors') {
           const searchResult = await searchAuthors(q, page);
           if (isMounted) {
             setAuthorResults(searchResult.results);
+            setTotalCount(searchResult.totalCount);
+          }
+        } else if (searchType === 'journals') {
+          const searchResult = await searchJournals(q, page);
+          if (isMounted) {
+            setJournalResults(searchResult.results);
             setTotalCount(searchResult.totalCount);
           }
         } else {
@@ -90,6 +104,18 @@ export default function ClientSearch() {
 
   const totalPages = Math.ceil(totalCount / 20);
 
+  const typeLabels: Record<SearchType, string> = {
+    papers: 'Papers',
+    authors: 'Authors',
+    journals: 'Journals',
+  };
+
+  const typeParamValue: Record<SearchType, string> = {
+    papers: '',
+    authors: 'author',
+    journals: 'journal',
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       <div className="mb-8 max-w-3xl">
@@ -102,6 +128,11 @@ export default function ClientSearch() {
             <Suspense fallback={<div className="h-64 bg-white/5 rounded-xl animate-pulse"></div>}>
               <FilterPanel />
             </Suspense>
+          ) : searchType === 'journals' ? (
+            <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
+              <h3 className="font-medium text-white">Journal Search</h3>
+              <p className="text-sm text-gray-500">Search for academic journals by name, publisher, or ISSN. Click on a journal to see its profile and papers.</p>
+            </div>
           ) : (
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
               <h3 className="font-medium text-white">Author Filters</h3>
@@ -117,7 +148,7 @@ export default function ClientSearch() {
         <div className="flex-1 min-w-0">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <h1 className="text-xl font-medium text-white">
-              {q ? `Results for "${q}"` : `All ${searchType === 'authors' ? 'Authors' : 'Papers'}`}
+              {q ? `Results for "${q}"` : `All ${typeLabels[searchType]}`}
               {!loading && <span className="text-gray-500 text-sm ml-3">{totalCount.toLocaleString()} found</span>}
             </h1>
             
@@ -140,7 +171,7 @@ export default function ClientSearch() {
             </div>
           )}
 
-          {!loading && !error && paperResults.length === 0 && authorResults.length === 0 && (
+          {!loading && !error && paperResults.length === 0 && authorResults.length === 0 && journalResults.length === 0 && (
             <div className="py-20 text-center text-gray-500">
               <p className="text-lg">No results found matching your criteria.</p>
               <p className="mt-2">Try adjusting your filters or search query.</p>
@@ -148,7 +179,18 @@ export default function ClientSearch() {
           )}
 
           <div className="space-y-4">
-            {searchType === 'authors' ? (
+            {searchType === 'journals' ? (
+              journalResults.map((journal, index) => (
+                <div key={journal.id}>
+                  <JournalCard journal={journal} />
+                  {(index + 1) % 6 === 0 && (
+                    <div className="my-6">
+                      <AdUnit slotId={`inline-ad-journal-${index}`} width={0} height={90} className="w-full h-[90px]" />
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : searchType === 'authors' ? (
               authorResults.map((author, index) => (
                 <div key={author.id}>
                   <AuthorCard author={author} />
@@ -177,7 +219,7 @@ export default function ClientSearch() {
             <div className="mt-10 flex items-center justify-center gap-2">
               {page > 1 && (
                 <Link 
-                  href={`/search?q=${encodeURIComponent(q)}&page=${page - 1}${sort ? `&sort=${sort}` : ''}${searchType === 'authors' ? '&type=author' : ''}`}
+                  href={`/search?q=${encodeURIComponent(q)}&page=${page - 1}${sort ? `&sort=${sort}` : ''}${typeParamValue[searchType] ? `&type=${typeParamValue[searchType]}` : ''}`}
                   className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white transition-colors"
                 >
                   Previous
@@ -188,7 +230,7 @@ export default function ClientSearch() {
               </span>
               {page < Math.min(totalPages, 500) && (
                 <Link 
-                  href={`/search?q=${encodeURIComponent(q)}&page=${page + 1}${sort ? `&sort=${sort}` : ''}${searchType === 'authors' ? '&type=author' : ''}`}
+                  href={`/search?q=${encodeURIComponent(q)}&page=${page + 1}${sort ? `&sort=${sort}` : ''}${typeParamValue[searchType] ? `&type=${typeParamValue[searchType]}` : ''}`}
                   className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white transition-colors"
                 >
                   Next
