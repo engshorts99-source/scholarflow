@@ -1,38 +1,59 @@
+"use client";
+import { useEffect, useState } from 'react';
 import { getPaperById } from '@/lib/openalex';
-
-export const runtime = 'edge';
 import { getPaperTldr } from '@/lib/semanticScholar';
 import AdUnit from '@/components/AdUnit';
 import { Quote, ExternalLink, FileText, Calendar, Building } from 'lucide-react';
 import Link from 'next/link';
 
-export async function generateMetadata({ params }: { params: { id: string } }) {
-  const paper = await getPaperById(params.id);
-  return {
-    title: paper ? `${paper.title} - ScholarFlow` : 'Paper Not Found - ScholarFlow',
-    description: paper?.abstract ? paper.abstract.substring(0, 160) + '...' : 'View paper details on ScholarFlow.',
-  };
-}
+export default function PaperPage({ params }: { params: { id: string } }) {
+  const [paper, setPaper] = useState<any>(null);
+  const [tldr, setTldr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export default async function PaperPage({ params }: { params: { id: string } }) {
-  const paper = await getPaperById(params.id);
-  
-  if (!paper) {
+  useEffect(() => {
+    let isMounted = true;
+    const fetchData = async () => {
+      try {
+        const paperData = await getPaperById(params.id);
+        if (!isMounted) return;
+        
+        setPaper(paperData);
+        
+        if (paperData && paperData.doi) {
+          const tldrData = await getPaperTldr(paperData.doi);
+          if (isMounted) setTldr(tldrData);
+        }
+      } catch (err: any) {
+        if (isMounted) setError(err.message || 'Failed to load paper');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    
+    fetchData();
+    return () => { isMounted = false; };
+  }, [params.id]);
+
+  if (loading) {
+    return (
+      <div className="py-20 flex justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (error || !paper) {
     return (
       <div className="container mx-auto px-4 py-20 text-center">
         <h1 className="text-3xl font-bold text-white mb-4">Paper Not Found</h1>
-        <p className="text-gray-400 mb-8">We couldn&apos;t find the paper you&apos;re looking for.</p>
+        <p className="text-gray-400 mb-8">{error || "We couldn't find the paper you're looking for."}</p>
         <Link href="/" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg transition-colors">
           Go Home
         </Link>
       </div>
     );
-  }
-
-  // Fetch TLDR
-  let tldr = null;
-  if (paper.doi) {
-    tldr = await getPaperTldr(paper.doi);
   }
 
   return (
@@ -57,7 +78,7 @@ export default async function PaperPage({ params }: { params: { id: string } }) 
           <div className="space-y-3">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Authors</h3>
             <div className="flex flex-wrap gap-x-5 gap-y-3 text-gray-300">
-              {paper.authors.map((author, i) => (
+              {paper.authors.map((author: any, i: number) => (
                 <div key={author.id || i} className="flex flex-col">
                   <span className="text-blue-400 font-medium">{author.name}</span>
                   {author.institution && <span className="text-xs text-gray-500 max-w-[200px] truncate">{author.institution}</span>}
@@ -109,7 +130,7 @@ export default async function PaperPage({ params }: { params: { id: string } }) 
             <div className="text-gray-400 mb-2 uppercase tracking-widest text-xs font-semibold">Citations</div>
             <div className="text-5xl font-bold text-white flex items-center justify-center gap-3">
               <Quote className="w-8 h-8 text-yellow-500 opacity-50" />
-              {paper.citedByCount.toLocaleString()}
+              {paper.citedByCount?.toLocaleString() || 0}
             </div>
           </div>
 
@@ -117,7 +138,7 @@ export default async function PaperPage({ params }: { params: { id: string } }) 
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-6">
               <h3 className="text-xs font-semibold text-gray-500 mb-4 uppercase tracking-widest">Concepts</h3>
               <div className="flex flex-wrap gap-2">
-                {paper.concepts.map(c => (
+                {paper.concepts.map((c: any) => (
                   <Link key={c.id} href={`/search?q=${encodeURIComponent(c.displayName)}`} className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-gray-300 transition-colors">
                     {c.displayName}
                   </Link>

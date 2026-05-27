@@ -1,28 +1,66 @@
+"use client";
+import { useEffect, useState } from 'react';
 import { getAuthorById, searchPapers } from '@/lib/openalex';
 import AdUnit from '@/components/AdUnit';
 import PaperCard from '@/components/PaperCard';
 import { Building, Quote, BookOpen, Users } from 'lucide-react';
 import Link from 'next/link';
 
-export const runtime = 'edge';
+export default function AuthorPage({ params }: { params: { id: string } }) {
+  const [author, setAuthor] = useState<any>(null);
+  const [latestPapersRes, setLatestPapersRes] = useState<any>(null);
+  const [topPapersRes, setTopPapersRes] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export async function generateMetadata({ params }: { params: { id: string } }) {
-  const author = await getAuthorById(params.id);
-  if (!author) return { title: "Author Not Found - ScholarFlow" };
-  return {
-    title: `${author.displayName} - ScholarFlow`,
-    description: `Research profile for ${author.displayName}. ${author.worksCount} publications, ${author.citedByCount} citations.`,
-  };
-}
+  useEffect(() => {
+    let isMounted = true;
+    const fetchData = async () => {
+      try {
+        const authorData = await getAuthorById(params.id);
+        if (!isMounted) return;
+        
+        if (!authorData) {
+          setError("Author not found");
+          setLoading(false);
+          return;
+        }
+        
+        setAuthor(authorData);
+        
+        const latestReq = searchPapers({ authorId: authorData.id, sort: 'date', page: 1 });
+        const topReq = searchPapers({ authorId: authorData.id, sort: 'citations', page: 1 });
+        
+        const [latest, top] = await Promise.all([latestReq, topReq]);
+        
+        if (isMounted) {
+          setLatestPapersRes(latest);
+          setTopPapersRes(top);
+        }
+      } catch (err: any) {
+        if (isMounted) setError(err.message || 'Failed to load author data');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    
+    fetchData();
+    return () => { isMounted = false; };
+  }, [params.id]);
 
-export default async function AuthorPage({ params }: { params: { id: string } }) {
-  const author = await getAuthorById(params.id);
-  
-  if (!author) {
+  if (loading) {
+    return (
+      <div className="py-20 flex justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (error || !author) {
     return (
       <div className="container mx-auto px-4 py-20 text-center text-gray-400">
         <h1 className="text-2xl font-bold text-white mb-2">Author Not Found</h1>
-        <p>The author you&apos;re looking for doesn&apos;t exist or has been removed.</p>
+        <p>{error || "The author you're looking for doesn't exist or has been removed."}</p>
         <Link href="/search" className="inline-block mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500">
           Return to Search
         </Link>
@@ -30,22 +68,18 @@ export default async function AuthorPage({ params }: { params: { id: string } })
     );
   }
 
-  // Fetch their latest and most cited papers
-  const latestPapersReq = searchPapers({ authorId: author.id, sort: 'date', page: 1 });
-  const topPapersReq = searchPapers({ authorId: author.id, sort: 'citations', page: 1 });
-
-  const [latestPapersRes, topPapersRes] = await Promise.all([latestPapersReq, topPapersReq]);
-
   // Try to find common co-authors (simple heuristic from their top papers)
   const coauthorCounts: Record<string, { id: string, name: string, count: number }> = {};
-  topPapersRes.results.forEach(paper => {
-    paper.authors.forEach(a => {
-      if (a.id && a.id !== author.id) {
-        if (!coauthorCounts[a.id]) coauthorCounts[a.id] = { id: a.id, name: a.name, count: 0 };
-        coauthorCounts[a.id].count += 1;
-      }
+  if (topPapersRes && topPapersRes.results) {
+    topPapersRes.results.forEach((paper: any) => {
+      paper.authors.forEach((a: any) => {
+        if (a.id && a.id !== author.id) {
+          if (!coauthorCounts[a.id]) coauthorCounts[a.id] = { id: a.id, name: a.name, count: 0 };
+          coauthorCounts[a.id].count += 1;
+        }
+      });
     });
-  });
+  }
   
   const topCoauthors = Object.values(coauthorCounts)
     .sort((a, b) => b.count - a.count)
@@ -82,7 +116,7 @@ export default async function AuthorPage({ params }: { params: { id: string } })
               <div className="mb-6">
                 <h3 className="text-xs uppercase tracking-widest text-gray-500 font-semibold mb-3">Top Research Areas</h3>
                 <div className="flex flex-wrap gap-2">
-                  {author.concepts.slice(0, 8).map(c => (
+                  {author.concepts.slice(0, 8).map((c: any) => (
                     <span key={c.id} className="text-xs px-3 py-1.5 rounded-full bg-white/5 text-gray-300 border border-white/10">
                       {c.displayName}
                     </span>
@@ -104,13 +138,13 @@ export default async function AuthorPage({ params }: { params: { id: string } })
               <div className="text-sm text-gray-400 flex items-center gap-2 mb-1">
                 <BookOpen className="w-4 h-4 text-blue-400" /> Total Works
               </div>
-              <div className="text-3xl font-semibold text-white font-space">{author.worksCount.toLocaleString()}</div>
+              <div className="text-3xl font-semibold text-white font-space">{author.worksCount?.toLocaleString() || 0}</div>
             </div>
             <div>
               <div className="text-sm text-gray-400 flex items-center gap-2 mb-1">
                 <Quote className="w-4 h-4 text-mint-400" /> Citations
               </div>
-              <div className="text-3xl font-semibold text-white font-space">{author.citedByCount.toLocaleString()}</div>
+              <div className="text-3xl font-semibold text-white font-space">{author.citedByCount?.toLocaleString() || 0}</div>
             </div>
           </div>
         </div>
@@ -129,7 +163,7 @@ export default async function AuthorPage({ params }: { params: { id: string } })
               </Link>
             </div>
             <div className="space-y-4">
-              {topPapersRes.results.slice(0, 5).map((paper, index) => (
+              {topPapersRes?.results?.slice(0, 5).map((paper: any, index: number) => (
                 <div key={paper.id}>
                   <PaperCard paper={paper} />
                   {index === 1 && (
@@ -153,7 +187,7 @@ export default async function AuthorPage({ params }: { params: { id: string } })
               </Link>
             </div>
             <div className="space-y-4">
-              {latestPapersRes.results.slice(0, 5).map(paper => (
+              {latestPapersRes?.results?.slice(0, 5).map((paper: any) => (
                 <PaperCard key={paper.id} paper={paper} />
               ))}
             </div>

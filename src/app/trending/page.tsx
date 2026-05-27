@@ -1,3 +1,5 @@
+"use client";
+import { useEffect, useState } from 'react';
 import PaperCard from '@/components/PaperCard';
 import AdUnit from '@/components/AdUnit';
 import { Flame } from 'lucide-react';
@@ -5,27 +7,47 @@ import { Paper } from '@/lib/types';
 import { mapWorkToPaper } from '@/lib/openalex';
 import { format, subDays } from 'date-fns';
 
-export const metadata = {
-  title: 'Trending Papers - ScholarFlow',
-  description: 'Discover the most cited and trending academic papers from the past week.',
-};
+export default function TrendingPage() {
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [loading, setLoading] = useState(true);
 
-async function getTrendingPapers(): Promise<Paper[]> {
-  try {
-    const oneWeekAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");
-    const url = `https://api.openalex.org/works?filter=from_publication_date:${oneWeekAgo},type:article&sort=cited_by_count:desc&per-page=20&mailto=scholarflow.project@example.com`;
-    const res = await fetch(url, { next: { revalidate: 3600 } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.results.map(mapWorkToPaper);
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
-}
-
-export default async function TrendingPage() {
-  const papers = await getTrendingPapers();
+  useEffect(() => {
+    let isMounted = true;
+    const fetchTrending = async () => {
+      try {
+        const oneWeekAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");
+        const url = `https://api.openalex.org/works?filter=from_publication_date:${oneWeekAgo},type:article&sort=cited_by_count:desc&per-page=20&mailto=engshorts99@gmail.com`;
+        
+        // Let's also add some basic retry logic here for the client
+        let res = null;
+        for (let i = 0; i < 3; i++) {
+          res = await fetch(url, { cache: 'no-store' });
+          if (res.status === 429) {
+            await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+            continue;
+          }
+          break;
+        }
+        
+        if (!res || !res.ok) {
+          if (isMounted) setLoading(false);
+          return;
+        }
+        
+        const data = await res.json();
+        if (isMounted) {
+          setPapers(data.results.map(mapWorkToPaper));
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    
+    fetchTrending();
+    return () => { isMounted = false; };
+  }, []);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
@@ -43,7 +65,11 @@ export default async function TrendingPage() {
         <AdUnit slotId="trending-top" width={728} height={90} className="w-full max-w-[728px]" />
       </div>
 
-      {papers.length === 0 ? (
+      {loading ? (
+        <div className="py-20 flex justify-center">
+          <div className="w-8 h-8 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      ) : papers.length === 0 ? (
         <div className="text-center py-20 text-gray-500">
           Unable to load trending papers at this time.
         </div>

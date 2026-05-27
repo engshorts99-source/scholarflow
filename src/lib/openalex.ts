@@ -194,3 +194,23 @@ export async function getAuthorById(id: string): Promise<AuthorProfile | null> {
   const data = await res.json();
   return mapOpenAlexAuthorToProfile(data);
 }
+
+export async function getJournalById(id: string): Promise<any | null> {
+  const sourceId = id.startsWith('S') ? id : `S${id}`;
+  const url = `${BASE_URL}/sources/${sourceId}?mailto=engshorts99@gmail.com`;
+  
+  const res = await fetchOpenAlex(url);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`OpenAlex API error: ${res.statusText}`);
+  
+  const data = await res.json();
+  return {
+    id: data.id.replace("https://openalex.org/", ""),
+    displayName: data.display_name,
+    issn: data.issn,
+    publisher: data.host_organization_name,
+    worksCount: data.works_count,
+    citedByCount: data.cited_by_count,
+    homepageUrl: data.homepage_url
+  };
+}
