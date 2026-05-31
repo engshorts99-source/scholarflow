@@ -9,6 +9,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: '/',
       disallow: ['/api/'],
     },
-    sitemap: 'https://scholarflow.pages.dev/sitemap.xml',
+    sitemap: 'https://scholarflow-8sf.pages.dev/sitemap.xml',
   };
 }

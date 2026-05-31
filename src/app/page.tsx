@@ -17,7 +17,7 @@ export default function Home() {
         </div>
         
         <h1 className="text-5xl md:text-7xl font-bold font-space tracking-tight text-white">
-          Research <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-mint-400">Flows</span> Here
+          Explore the <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-mint-400">Unknown</span>
         </h1>
         
         <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto">

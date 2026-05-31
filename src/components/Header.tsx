@@ -7,7 +7,7 @@ export default function Header() {
       <div className="container mx-auto flex h-16 items-center justify-between px-4 max-w-6xl">
         <Link href="/" className="flex items-center gap-2">
           <Search className="h-6 w-6 text-blue-500" />
-          <span className="text-xl font-bold tracking-tight text-white font-space">Scholar<span className="text-blue-500">Flow</span></span>
+          <span className="text-xl font-bold tracking-tight text-white font-space">Sch<span className="text-blue-500">ox</span></span>
         </Link>
         <nav className="flex gap-6 text-sm font-medium text-gray-300">
           <Link href="/trending" className="hover:text-white transition-colors">Trending</Link>

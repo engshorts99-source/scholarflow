@@ -8,7 +8,7 @@ export async function generateMetadata({ searchParams }: { searchParams: { [key:
   const type = searchParams.type as string;
   const titleSuffix = type === 'author' ? "Author Search" : "Paper Search";
   return {
-    title: q ? `${q} - ScholarFlow ${titleSuffix}` : `Search - ScholarFlow`,
+    title: q ? `${q} - Schox ${titleSuffix}` : `Search - Schox`,
   };
 }
 

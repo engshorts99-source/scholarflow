@@ -4,7 +4,7 @@ import { format, subDays } from 'date-fns';
 export const runtime = 'edge';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = 'https://scholarflow.pages.dev';
+  const baseUrl = 'https://scholarflow-8sf.pages.dev';
   
   const routes: MetadataRoute.Sitemap = [
     {
@@ -30,7 +30,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Try to fetch top trending papers to include in sitemap
   try {
     const oneWeekAgo = format(subDays(new Date(), 7), "yyyy-MM-dd");
-    const url = `https://api.openalex.org/works?filter=from_publication_date:${oneWeekAgo},type:article&sort=cited_by_count:desc&per-page=50&mailto=scholarflow.project@example.com`;
+    const url = `https://api.openalex.org/works?filter=from_publication_date:${oneWeekAgo},type:article&sort=cited_by_count:desc&per-page=50&mailto=schox.project@example.com`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();

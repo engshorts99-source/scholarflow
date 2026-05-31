@@ -5,7 +5,7 @@ const BASE_URL = "https://api.openalex.org";
 
 async function fetchOpenAlex(url: string) {
   const headers = {
-    "User-Agent": "ScholarFlow/1.0 (mailto:engshorts99@gmail.com)"
+    "User-Agent": "Schox/1.0 (mailto:engshorts99@gmail.com)"
   };
   
   for (let i = 0; i < 3; i++) {

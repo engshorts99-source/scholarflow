@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { Search, Database, Zap, BookOpen, Users, Quote, ExternalLink, Heart } from 'lucide-react';
 
 export const metadata = {
-  title: 'About - ScholarFlow',
-  description: 'Learn about ScholarFlow, the modern academic search engine providing free access to 250M+ research papers.',
+  title: 'About - Schox',
+  description: 'Learn about Schox, the modern academic search engine providing free access to 250M+ research papers.',
 };
 
 export default function AboutPage() {
@@ -54,10 +54,10 @@ export default function AboutPage() {
           <Heart className="w-4 h-4" /> Free & Open for Everyone
         </div>
         <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 font-space">
-          About <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-mint-400">ScholarFlow</span>
+          About <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-mint-400">Schox</span>
         </h1>
         <p className="text-lg md:text-xl text-gray-400 max-w-3xl mx-auto leading-relaxed">
-          ScholarFlow is a modern, free academic search engine designed to make research discovery fast, intuitive, and accessible to everyone — from students to seasoned researchers.
+          Schox is a modern, free academic search engine designed to make research discovery fast, intuitive, and accessible to everyone — from students to seasoned researchers.
         </p>
       </div>
 
@@ -67,7 +67,7 @@ export default function AboutPage() {
         <div className="relative z-10">
           <h2 className="text-2xl font-bold text-white mb-4 font-space">Our Mission</h2>
           <p className="text-gray-300 leading-relaxed text-lg">
-            Academic knowledge should be discoverable by anyone, anywhere. ScholarFlow provides a clean, ad-supported alternative to expensive institutional databases, giving free access to paper search, citation tracking, author discovery, and AI-powered summaries — all in one place.
+            Academic knowledge should be discoverable by anyone, anywhere. Schox provides a clean, ad-supported alternative to expensive institutional databases, giving free access to paper search, citation tracking, author discovery, and AI-powered summaries — all in one place.
           </p>
         </div>
       </div>
@@ -119,7 +119,7 @@ export default function AboutPage() {
         <h2 className="text-2xl font-bold text-white mb-8 font-space text-center">FAQ</h2>
         <div className="space-y-4">
           {[
-            { q: "Is ScholarFlow free?", a: "Yes, completely free. ScholarFlow is funded by advertisements and will always remain free to use." },
+            { q: "Is Schox free?", a: "Yes, completely free. Schox is funded by advertisements and will always remain free to use." },
             { q: "Where does the data come from?", a: "All paper, author, and journal data comes from OpenAlex, a fully open catalog of scholarly metadata. AI summaries are provided by Semantic Scholar." },
             { q: "Can I download PDFs?", a: "If a paper is open access, we provide a direct link to the PDF. For paywalled papers, we link to the publisher's page where you can access it through your institution." },
             { q: "How often is the data updated?", a: "OpenAlex updates its database daily with new publications. Search results reflect the most current data available." },

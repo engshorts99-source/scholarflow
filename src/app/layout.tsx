@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" });
 
 export const metadata: Metadata = {
-  title: "ScholarFlow | Modern Academic Search",
+  title: "Schox | Modern Academic Search",
   description: "Search 250M+ papers across OpenAlex, Semantic Scholar, PubMed, and CrossRef. Sort by citations, date, and find the latest research.",
   keywords: ["academic search engine", "research papers", "free paper search", "OpenAlex search", "citation tracking", "scholar search", "academic journal search"],
   icons: {
