@@ -1,64 +1,110 @@
 import SearchBar from '@/components/SearchBar';
 import AdUnit from '@/components/AdUnit';
 import Link from 'next/link';
-import { TrendingUp, Clock, BookOpen } from 'lucide-react';
+import { Compass, Users, Flame } from 'lucide-react';
+
+const CONCEPT_QUICK_DEMOS = [
+  "CRISPR",
+  "Retrieval-Augmented Generation",
+  "Graph Neural Network",
+  "Diffusion Models",
+  "Autophagy",
+  "Quantum Error Correction",
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] px-4">
+    <div className="flex flex-col items-center justify-center min-h-[82vh] px-4">
       {/* Hero Section */}
-      <div className="w-full max-w-4xl text-center space-y-6 mt-12 mb-10">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm font-medium mb-4">
+      <div className="w-full max-w-4xl text-center space-y-6 mt-10 mb-8">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm font-medium mb-2">
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-mint-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-mint-400"></span>
           </span>
-          Access 250M+ Papers Free Forever
+          Concept Origin · Research State · People Networks
         </div>
-        
+
         <h1 className="text-5xl md:text-7xl font-bold font-space tracking-tight text-white">
           Explore the <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-mint-400">Unknown</span>
         </h1>
-        
+
         <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto">
-          The modern academic search engine. Sort by citations, track latest publications, and read AI-powered summaries instantly.
+          Trace when scientific concepts were first defined, see where the frontier stands today, and explore the researcher networks connecting 250M+ papers.
         </p>
       </div>
 
       {/* Search Bar */}
-      <div className="w-full max-w-3xl mb-12">
-        <SearchBar size="large" />
+      <div className="w-full max-w-3xl mb-6">
+        <SearchBar size="large" initialType="papers" />
       </div>
 
-      {/* Quick Links */}
+      {/* Explore Concept Demos */}
+      <div className="w-full max-w-3xl mb-12 flex flex-wrap items-center justify-center gap-2">
+        <span className="text-xs text-gray-500 font-medium mr-1">
+          Explore a Concept &amp; Its People:
+        </span>
+        {CONCEPT_QUICK_DEMOS.map((term) => (
+          <Link
+            key={term}
+            href={`/concept?q=${encodeURIComponent(term)}`}
+            className="text-xs px-3 py-1.5 rounded-full bg-white/[0.03] hover:bg-mint-500/15 border border-white/10 hover:border-mint-500/40 text-gray-300 hover:text-mint-300 transition-colors"
+          >
+            {term}
+          </Link>
+        ))}
+      </div>
+
+      {/* Feature / Navigation Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl mb-16">
-        <Link href="/search?sort=citations" className="group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-yellow-500/10 text-yellow-400 group-hover:bg-yellow-500/20 transition-colors">
-            <TrendingUp className="h-5 w-5" />
+        <Link
+          href="/concept"
+          className="group p-5 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-mint-500/30 transition-all flex items-start gap-3.5"
+        >
+          <div className="p-2.5 rounded-lg bg-mint-500/10 text-mint-400 group-hover:bg-mint-500/20 transition-colors shrink-0">
+            <Compass className="h-5 w-5" />
           </div>
           <div>
-            <div className="font-medium text-gray-200 group-hover:text-white transition-colors">Most Cited</div>
-            <div className="text-xs text-gray-500">High impact papers</div>
+            <div className="font-semibold text-gray-100 group-hover:text-white transition-colors">
+              Concept Origin &amp; State
+            </div>
+            <div className="text-xs text-gray-400 mt-1 leading-relaxed">
+              See when an idea began, defining abstracts, 4-era paper timelines, and growth momentum.
+            </div>
           </div>
         </Link>
-        
-        <Link href="/search?sort=date" className="group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20 transition-colors">
-            <Clock className="h-5 w-5" />
+
+        <Link
+          href="/search?type=author&q=Jennifer+Doudna"
+          className="group p-5 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-blue-500/30 transition-all flex items-start gap-3.5"
+        >
+          <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20 transition-colors shrink-0">
+            <Users className="h-5 w-5" />
           </div>
           <div>
-            <div className="font-medium text-gray-200 group-hover:text-white transition-colors">Latest Pubs</div>
-            <div className="text-xs text-gray-500">Published this week</div>
+            <div className="font-semibold text-gray-100 group-hover:text-white transition-colors">
+              Researcher Networks
+            </div>
+            <div className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Interactive collaboration maps, co-authored paper inspection, and citation lineage.
+            </div>
           </div>
         </Link>
-        
-        <Link href="/trending" className="group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-mint-500/10 text-mint-400 group-hover:bg-mint-500/20 transition-colors">
-            <BookOpen className="h-5 w-5" />
+
+        <Link
+          href="/trending"
+          className="group p-5 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-amber-500/30 transition-all flex items-start gap-3.5"
+        >
+          <div className="p-2.5 rounded-lg bg-yellow-500/10 text-yellow-400 group-hover:bg-yellow-500/20 transition-colors shrink-0">
+            <Flame className="h-5 w-5" />
           </div>
           <div>
-            <div className="font-medium text-gray-200 group-hover:text-white transition-colors">Trending</div>
-            <div className="text-xs text-gray-500">Hot topics right now</div>
+            <div className="font-semibold text-gray-100 group-hover:text-white transition-colors">
+              Live Frontier
+            </div>
+            <div className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Track high-velocity papers published this week and fast-rising sub-directions.
+            </div>
           </div>
         </Link>
       </div>

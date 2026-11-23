@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Search } from 'lucide-react';
+import { Search, Compass } from 'lucide-react';
 
 export default function Header() {
   return (
@@ -9,7 +9,11 @@ export default function Header() {
           <Search className="h-6 w-6 text-blue-500" />
           <span className="text-xl font-bold tracking-tight text-white font-space">Sch<span className="text-blue-500">ox</span></span>
         </Link>
-        <nav className="flex gap-6 text-sm font-medium text-gray-300">
+        <nav className="flex items-center gap-5 sm:gap-6 text-sm font-medium text-gray-300">
+          <Link href="/concept" className="hover:text-mint-400 transition-colors flex items-center gap-1.5">
+            <Compass className="w-4 h-4 text-mint-400" />
+            <span>Concept Atlas</span>
+          </Link>
           <Link href="/trending" className="hover:text-white transition-colors">Trending</Link>
           <Link href="/about" className="hover:text-white transition-colors">About</Link>
         </nav>

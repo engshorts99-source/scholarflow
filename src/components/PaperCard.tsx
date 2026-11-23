@@ -1,14 +1,31 @@
 import Link from 'next/link';
-import { FileText, ExternalLink, Quote } from 'lucide-react';
+import { FileText, ExternalLink, Quote, Compass } from 'lucide-react';
 import { Paper } from '@/lib/types';
 import { format } from 'date-fns';
 
 export default function PaperCard({ paper }: { paper: Paper }) {
-  // Citation badge color
   let badgeColor = "bg-gray-800 text-gray-300 border-gray-700";
   if (paper.citedByCount >= 1000) badgeColor = "bg-red-500/10 text-red-400 border-red-500/20";
   else if (paper.citedByCount >= 100) badgeColor = "bg-yellow-500/10 text-yellow-400 border-yellow-500/20";
   else if (paper.citedByCount >= 10) badgeColor = "bg-green-500/10 text-green-400 border-green-500/20";
+
+  const topicLabel = paper.primaryTopic?.displayName || paper.concepts?.[0]?.displayName;
+  const formattedType =
+    paper.type === "preprint"
+      ? "Preprint"
+      : paper.type === "review"
+      ? "Review"
+      : paper.type === "conference-paper"
+      ? "Conference"
+      : null;
+
+  let formattedDate: string | number = paper.publicationYear;
+  if (paper.publicationDate) {
+    const parsed = new Date(paper.publicationDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      formattedDate = format(parsed, 'MMM yyyy');
+    }
+  }
 
   return (
     <div className="group relative rounded-xl border border-white/5 bg-white/[0.02] p-5 backdrop-blur-sm transition-all hover:bg-white/[0.04] hover:border-white/10 shadow-lg">
@@ -19,15 +36,15 @@ export default function PaperCard({ paper }: { paper: Paper }) {
               {paper.title}
             </h3>
           </Link>
-          
+
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400">
             {/* Clickable Authors */}
             <span className="flex flex-wrap items-center gap-x-1">
               {paper.authors.slice(0, 3).map((author, i) => (
                 <span key={author.id || i}>
                   {author.id ? (
-                    <Link 
-                      href={`/author/${author.id}`} 
+                    <Link
+                      href={`/author/${author.id}`}
                       className="hover:text-blue-400 transition-colors underline decoration-dotted underline-offset-2 decoration-gray-600 hover:decoration-blue-400"
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -41,11 +58,11 @@ export default function PaperCard({ paper }: { paper: Paper }) {
               ))}
               {paper.authors.length > 3 && <span> et al.</span>}
             </span>
-            
+
             {paper.journal && (
               <>
                 <span className="h-1 w-1 rounded-full bg-gray-600" />
-                <Link 
+                <Link
                   href={`/journal/${paper.journal.id}`}
                   className="italic truncate max-w-[200px] sm:max-w-xs hover:text-blue-400 transition-colors"
                   onClick={(e) => e.stopPropagation()}
@@ -55,7 +72,7 @@ export default function PaperCard({ paper }: { paper: Paper }) {
               </>
             )}
             <span className="h-1 w-1 rounded-full bg-gray-600" />
-            <span>{paper.publicationDate ? format(new Date(paper.publicationDate), 'MMM yyyy') : paper.publicationYear}</span>
+            <span>{formattedDate}</span>
           </div>
 
           {paper.tldr && (
@@ -67,16 +84,34 @@ export default function PaperCard({ paper }: { paper: Paper }) {
             </div>
           )}
 
-          <div className="pt-2 flex flex-wrap items-center gap-3">
+          <div className="pt-1 flex flex-wrap items-center gap-2.5">
             <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${badgeColor}`}>
               <Quote className="h-3 w-3" />
               {paper.citedByCount.toLocaleString()} Citations
             </div>
-            
+
+            {formattedType && (
+              <span className="rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-xs text-gray-300">
+                {formattedType}
+              </span>
+            )}
+
+            {topicLabel && (
+              <Link
+                href={`/concept?q=${encodeURIComponent(topicLabel)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 rounded-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-2.5 py-1 text-xs text-blue-300 transition-colors max-w-[220px]"
+                title={`Explore concept evolution for ${topicLabel}`}
+              >
+                <Compass className="h-3 w-3 shrink-0" />
+                <span className="truncate">{topicLabel}</span>
+              </Link>
+            )}
+
             {paper.isOpenAccess && paper.pdfUrl && (
-              <a 
-                href={paper.pdfUrl} 
-                target="_blank" 
+              <a
+                href={paper.pdfUrl}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 rounded-full bg-mint-500/10 border border-mint-500/20 px-2.5 py-1 text-xs font-medium text-mint-400 transition-colors hover:bg-mint-500/20"
               >
@@ -84,11 +119,11 @@ export default function PaperCard({ paper }: { paper: Paper }) {
                 PDF
               </a>
             )}
-            
+
             {paper.doi && (
-              <a 
-                href={paper.doi} 
-                target="_blank" 
+              <a
+                href={paper.doi}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-500 transition-colors hover:text-gray-300"
               >

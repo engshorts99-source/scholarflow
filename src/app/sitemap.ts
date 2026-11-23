@@ -3,15 +3,31 @@ import { format, subDays } from 'date-fns';
 
 export const runtime = 'edge';
 
+const FEATURED_CONCEPTS = [
+  'CRISPR',
+  'Retrieval-Augmented Generation',
+  'Graph Neural Network',
+  'Diffusion Models',
+  'Autophagy',
+  'Quantum Error Correction',
+  'Transformer',
+];
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = 'https://scholarflow-8sf.pages.dev';
-  
+
   const routes: MetadataRoute.Sitemap = [
     {
       url: baseUrl,
       lastModified: new Date(),
       changeFrequency: 'daily' as const,
       priority: 1,
+    },
+    {
+      url: `${baseUrl}/concept`,
+      lastModified: new Date(),
+      changeFrequency: 'daily' as const,
+      priority: 0.95,
     },
     {
       url: `${baseUrl}/trending`,
@@ -23,8 +39,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       url: `${baseUrl}/search`,
       lastModified: new Date(),
       changeFrequency: 'always' as const,
-      priority: 0.8,
+      priority: 0.85,
     },
+    {
+      url: `${baseUrl}/about`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.6,
+    },
+    ...FEATURED_CONCEPTS.map((term) => ({
+      url: `${baseUrl}/concept?q=${encodeURIComponent(term)}`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly' as const,
+      priority: 0.85,
+    })),
   ];
 
   // Try to fetch top trending papers to include in sitemap

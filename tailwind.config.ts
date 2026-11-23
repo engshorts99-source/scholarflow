@@ -14,6 +14,7 @@ const config: Config = {
         mint: {
           400: "hsl(160, 75%, 60%)",
           500: "hsl(160, 75%, 48%)",
+          600: "hsl(160, 75%, 38%)",
         }
       },
       fontFamily: {

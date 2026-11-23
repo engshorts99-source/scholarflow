@@ -7,26 +7,40 @@ import PaperCard from '@/components/PaperCard';
 import AuthorCard from '@/components/AuthorCard';
 import JournalCard from '@/components/JournalCard';
 import AdUnit from '@/components/AdUnit';
+import ConceptSnapshotBanner from '@/components/ConceptSnapshotBanner';
 import { searchPapers, searchAuthors, searchJournals } from '@/lib/openalex';
 import { getBatchTldrs } from '@/lib/semanticScholar';
 import { SearchParams, Paper, AuthorProfile, JournalProfile } from '@/lib/types';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { FileText, User, BookOpen } from 'lucide-react';
+import { FileText, User, BookOpen, Filter, X } from 'lucide-react';
 
 type SearchType = 'papers' | 'authors' | 'journals' | 'all';
 
 export default function ClientSearch() {
   const searchParams = useSearchParams();
-  
+
   const q = searchParams.get('q') || '';
-  const page = parseInt(searchParams.get('page') || '1');
+  const page = parseInt(searchParams.get('page') || '1', 10) || 1;
   const sort = searchParams.get('sort') || undefined;
-  
-  // Determine search type
+  const yearFrom = searchParams.get('yearFrom') || undefined;
+  const yearTo = searchParams.get('yearTo') || undefined;
+  const oaOnly = searchParams.get('oaOnly') === 'true';
+  const journalId = searchParams.get('journalId') || undefined;
+  const authorId = searchParams.get('authorId') || undefined;
+  const coauthorId = searchParams.get('coauthorId') || undefined;
+  const citesId = searchParams.get('citesId') || undefined;
+
   const typeParam = searchParams.get('type');
-  const searchType: SearchType = typeParam === 'author' ? 'authors' : typeParam === 'journal' ? 'journals' : typeParam === 'all' ? 'all' : 'papers';
-  
+  const searchType: SearchType =
+    typeParam === 'author'
+      ? 'authors'
+      : typeParam === 'journal'
+      ? 'journals'
+      : typeParam === 'all'
+      ? 'all'
+      : 'papers';
+
   const [paperResults, setPaperResults] = useState<Paper[]>([]);
   const [authorResults, setAuthorResults] = useState<AuthorProfile[]>([]);
   const [journalResults, setJournalResults] = useState<JournalProfile[]>([]);
@@ -36,98 +50,133 @@ export default function ClientSearch() {
 
   useEffect(() => {
     let isMounted = true;
+
+    const enrichTldrsInBackground = (papers: Paper[]) => {
+      const dois = papers
+        .map((p) => p.doi)
+        .filter((doi): doi is string => doi !== null);
+      if (dois.length === 0) return;
+
+      getBatchTldrs(dois)
+        .then((tldrs) => {
+          if (!isMounted || Object.keys(tldrs).length === 0) return;
+          setPaperResults((prev) =>
+            prev.map((paper) => ({
+              ...paper,
+              tldr: paper.doi
+                ? tldrs[paper.doi.toLowerCase().replace("https://doi.org/", "")] ||
+                  paper.tldr
+                : paper.tldr,
+            }))
+          );
+        })
+        .catch(() => {
+          // Semantic Scholar TLDR enrichment is strictly best-effort
+        });
+    };
+
     const fetchData = async () => {
       setLoading(true);
       setError(null);
       setPaperResults([]);
       setAuthorResults([]);
       setJournalResults([]);
-      
+
       try {
         if (searchType === 'all' && q) {
-          // Unified search: fetch papers, authors, and journals in parallel
           const [papersRes, authorsRes, journalsRes] = await Promise.all([
-            searchPapers({ q, page: 1, sort: sort as SearchParams['sort'] }).catch(() => ({ results: [], totalCount: 0, page: 1 })),
+            searchPapers({
+              q,
+              page: 1,
+              sort: sort as SearchParams['sort'],
+              yearFrom,
+              yearTo,
+              oaOnly,
+              journalId,
+              authorId,
+              coauthorId,
+              citesId,
+            }).catch(() => ({ results: [], totalCount: 0, page: 1 })),
             searchAuthors(q, 1).catch(() => ({ results: [], totalCount: 0, page: 1 })),
             searchJournals(q, 1).catch(() => ({ results: [], totalCount: 0, page: 1 })),
           ]);
-          
+
           if (!isMounted) return;
-          
-          // Get TLDRs for papers
-          const dois = papersRes.results.slice(0, 5).map(p => p.doi).filter((doi): doi is string => doi !== null);
-          let tldrs: Record<string, string> = {};
-          if (dois.length > 0) {
-            tldrs = await getBatchTldrs(dois);
-          }
-          
-          if (isMounted) {
-            setPaperResults(papersRes.results.slice(0, 5).map(paper => ({
-              ...paper,
-              tldr: paper.doi ? tldrs[paper.doi.toLowerCase().replace("https://doi.org/", "")] || null : null
-            })));
-            setAuthorResults(authorsRes.results.slice(0, 3));
-            setJournalResults(journalsRes.results.slice(0, 3));
-            setTotalCount(papersRes.totalCount + authorsRes.totalCount + journalsRes.totalCount);
-          }
+
+          const topPapers = papersRes.results.slice(0, 5);
+          setPaperResults(topPapers);
+          setAuthorResults(authorsRes.results.slice(0, 3));
+          setJournalResults(journalsRes.results.slice(0, 3));
+          setTotalCount(
+            papersRes.totalCount + authorsRes.totalCount + journalsRes.totalCount
+          );
+          setLoading(false);
+
+          enrichTldrsInBackground(topPapers);
         } else if (searchType === 'authors') {
           const searchResult = await searchAuthors(q, page);
           if (isMounted) {
             setAuthorResults(searchResult.results);
             setTotalCount(searchResult.totalCount);
+            setLoading(false);
           }
         } else if (searchType === 'journals') {
           const searchResult = await searchJournals(q, page);
           if (isMounted) {
             setJournalResults(searchResult.results);
             setTotalCount(searchResult.totalCount);
+            setLoading(false);
           }
         } else {
           const params: SearchParams = {
             q,
             page,
             sort: sort as SearchParams['sort'],
-            yearFrom: searchParams.get('yearFrom') || undefined,
-            yearTo: searchParams.get('yearTo') || undefined,
-            oaOnly: searchParams.get('oaOnly') === 'true',
-            journalId: searchParams.get('journalId') || undefined,
+            yearFrom,
+            yearTo,
+            oaOnly,
+            journalId,
+            authorId,
+            coauthorId,
+            citesId,
           };
-          
+
           const searchResult = await searchPapers(params);
-          
           if (!isMounted) return;
-          
-          const dois = searchResult.results
-            .map(p => p.doi)
-            .filter((doi): doi is string => doi !== null);
-            
-          let tldrs: Record<string, string> = {};
-          if (dois.length > 0) {
-            tldrs = await getBatchTldrs(dois);
-          }
-          
-          if (isMounted) {
-            setPaperResults(searchResult.results.map(paper => ({
-              ...paper,
-              tldr: paper.doi ? tldrs[paper.doi.toLowerCase().replace("https://doi.org/", "")] || null : null
-            })));
-            setTotalCount(searchResult.totalCount);
-          }
+
+          setPaperResults(searchResult.results);
+          setTotalCount(searchResult.totalCount);
+          setLoading(false);
+
+          enrichTldrsInBackground(searchResult.results);
         }
       } catch (e: unknown) {
         if (isMounted) {
           const errorMessage = e instanceof Error ? e.message : String(e);
           setError(`Failed to fetch search results: ${errorMessage}`);
           console.error(e);
+          setLoading(false);
         }
-      } finally {
-        if (isMounted) setLoading(false);
       }
     };
-    
+
     fetchData();
-    return () => { isMounted = false; };
-  }, [q, page, sort, searchType, searchParams]);
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    q,
+    page,
+    sort,
+    searchType,
+    yearFrom,
+    yearTo,
+    oaOnly,
+    journalId,
+    authorId,
+    coauthorId,
+    citesId,
+  ]);
 
   const totalPages = Math.ceil(totalCount / 20);
 
@@ -137,6 +186,46 @@ export default function ClientSearch() {
     journals: 'journal',
     all: 'all',
   };
+
+  const buildPageHref = (targetPage: number) => {
+    const p = new URLSearchParams();
+    if (q) p.set('q', q);
+    p.set('page', String(targetPage));
+    if (sort) p.set('sort', sort);
+    if (typeParamValue[searchType]) p.set('type', typeParamValue[searchType]);
+    if (yearFrom) p.set('yearFrom', yearFrom);
+    if (yearTo) p.set('yearTo', yearTo);
+    if (oaOnly) p.set('oaOnly', 'true');
+    if (journalId) p.set('journalId', journalId);
+    if (authorId) p.set('authorId', authorId);
+    if (coauthorId) p.set('coauthorId', coauthorId);
+    if (citesId) p.set('citesId', citesId);
+    return `/search?${p.toString()}`;
+  };
+
+  const buildClearEntityFilterHref = (keysToRemove: string[]) => {
+    const p = new URLSearchParams(searchParams.toString());
+    for (const k of keysToRemove) p.delete(k);
+    p.set('page', '1');
+    return `/search?${p.toString()}`;
+  };
+
+  const showConceptSnapshot =
+    q.trim().length >= 2 &&
+    (searchType === 'papers' || searchType === 'all') &&
+    page === 1 &&
+    !authorId &&
+    !citesId;
+
+  const headingText = q
+    ? `Results for "${q}"`
+    : authorId && coauthorId
+    ? `Co-authored Works`
+    : authorId
+    ? `Researcher Publications`
+    : citesId
+    ? `Papers Citing ${citesId}`
+    : `All Results`;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -153,32 +242,86 @@ export default function ClientSearch() {
           ) : searchType === 'all' ? (
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
               <h3 className="font-medium text-white">Unified Search</h3>
-              <p className="text-sm text-gray-500">Showing top results across papers, authors, and journals. Click a category to see all results.</p>
+              <p className="text-sm text-gray-500">
+                Showing top results across papers, people, and journals. Click a category to see all results.
+              </p>
             </div>
           ) : searchType === 'journals' ? (
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
               <h3 className="font-medium text-white">Journal Search</h3>
-              <p className="text-sm text-gray-500">Search for academic journals by name, publisher, or ISSN.</p>
+              <p className="text-sm text-gray-500">
+                Search for academic journals by name, publisher, or ISSN.
+              </p>
             </div>
           ) : (
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-5 space-y-4">
-              <h3 className="font-medium text-white">Author Filters</h3>
-              <p className="text-sm text-gray-500">More filters coming soon.</p>
+              <h3 className="font-medium text-white">People Search</h3>
+              <p className="text-sm text-gray-500">
+                Open any researcher to explore their co-author ego-network, shared papers, and intellectual lineage.
+              </p>
             </div>
           )}
-          
+
           <div className="mt-6 sticky top-[450px]">
-             <AdUnit slotId="sidebar-ad-1" width={250} height={250} />
+            <AdUnit slotId="sidebar-ad-1" width={250} height={250} />
           </div>
         </div>
 
         <div className="flex-1 min-w-0">
+          {/* Active entity filter pills */}
+          {(authorId || coauthorId || citesId) && (
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-gray-400 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5" /> Active graph filter:
+              </span>
+              {authorId && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-mint-500/15 border border-mint-500/30 text-mint-300">
+                  <Link href={`/author/${authorId}`} className="hover:underline">
+                    Author: {authorId}
+                  </Link>
+                  <Link href={buildClearEntityFilterHref(['authorId', 'coauthorId'])}>
+                    <X className="w-3 h-3 hover:text-white" />
+                  </Link>
+                </span>
+              )}
+              {coauthorId && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300">
+                  <Link href={`/author/${coauthorId}`} className="hover:underline">
+                    Co-author: {coauthorId}
+                  </Link>
+                  <Link href={buildClearEntityFilterHref(['coauthorId'])}>
+                    <X className="w-3 h-3 hover:text-white" />
+                  </Link>
+                </span>
+              )}
+              {citesId && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-300">
+                  <Link href={`/paper/${citesId}`} className="hover:underline">
+                    Citing: {citesId}
+                  </Link>
+                  <Link href={buildClearEntityFilterHref(['citesId'])}>
+                    <X className="w-3 h-3 hover:text-white" />
+                  </Link>
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Live Concept Snapshot Banner */}
+          {showConceptSnapshot && (
+            <ConceptSnapshotBanner query={q} samplePapers={paperResults} />
+          )}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <h1 className="text-xl font-medium text-white">
-              {q ? `Results for "${q}"` : `All Results`}
-              {!loading && <span className="text-gray-500 text-sm ml-3">{totalCount.toLocaleString()} found</span>}
+              {headingText}
+              {!loading && (
+                <span className="text-gray-500 text-sm ml-3">
+                  {totalCount.toLocaleString()} found
+                </span>
+              )}
             </h1>
-            
+
             {searchType === 'papers' && (
               <Suspense fallback={null}>
                 <SortControls />
@@ -198,67 +341,77 @@ export default function ClientSearch() {
             </div>
           )}
 
-          {!loading && !error && paperResults.length === 0 && authorResults.length === 0 && journalResults.length === 0 && (
-            <div className="py-20 text-center text-gray-500">
-              <p className="text-lg">No results found matching your criteria.</p>
-              <p className="mt-2">Try adjusting your filters or search query.</p>
-            </div>
-          )}
+          {!loading &&
+            !error &&
+            paperResults.length === 0 &&
+            authorResults.length === 0 &&
+            journalResults.length === 0 && (
+              <div className="py-20 text-center text-gray-500">
+                <p className="text-lg">No results found matching your criteria.</p>
+                <p className="mt-2">Try adjusting your filters or search query.</p>
+              </div>
+            )}
 
           {/* Unified "All" search results */}
           {searchType === 'all' && !loading && !error && (
             <div className="space-y-10">
-              {/* Papers section */}
               {paperResults.length > 0 && (
                 <section>
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                       <FileText className="w-5 h-5 text-blue-400" /> Papers
                     </h2>
-                    <Link href={`/search?q=${encodeURIComponent(q)}`} className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                    <Link
+                      href={`/search?q=${encodeURIComponent(q)}`}
+                      className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                    >
                       View all papers →
                     </Link>
                   </div>
                   <div className="space-y-3">
-                    {paperResults.map(paper => (
+                    {paperResults.map((paper) => (
                       <PaperCard key={paper.id} paper={paper} />
                     ))}
                   </div>
                 </section>
               )}
 
-              {/* Authors section */}
               {authorResults.length > 0 && (
                 <section>
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                      <User className="w-5 h-5 text-mint-400" /> Authors
+                      <User className="w-5 h-5 text-mint-400" /> People
                     </h2>
-                    <Link href={`/search?type=author&q=${encodeURIComponent(q)}`} className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
-                      View all authors →
+                    <Link
+                      href={`/search?type=author&q=${encodeURIComponent(q)}`}
+                      className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      View all researchers →
                     </Link>
                   </div>
                   <div className="space-y-3">
-                    {authorResults.map(author => (
+                    {authorResults.map((author) => (
                       <AuthorCard key={author.id} author={author} />
                     ))}
                   </div>
                 </section>
               )}
 
-              {/* Journals section */}
               {journalResults.length > 0 && (
                 <section>
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                       <BookOpen className="w-5 h-5 text-purple-400" /> Journals
                     </h2>
-                    <Link href={`/search?type=journal&q=${encodeURIComponent(q)}`} className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                    <Link
+                      href={`/search?type=journal&q=${encodeURIComponent(q)}`}
+                      className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                    >
                       View all journals →
                     </Link>
                   </div>
                   <div className="space-y-3">
-                    {journalResults.map(journal => (
+                    {journalResults.map((journal) => (
                       <JournalCard key={journal.id} journal={journal} />
                     ))}
                   </div>
@@ -266,7 +419,12 @@ export default function ClientSearch() {
               )}
 
               <div className="my-6">
-                <AdUnit slotId="all-results-bottom" width={0} height={90} className="w-full h-[90px]" />
+                <AdUnit
+                  slotId="all-results-bottom"
+                  width={0}
+                  height={90}
+                  className="w-full h-[90px]"
+                />
               </div>
             </div>
           )}
@@ -280,7 +438,12 @@ export default function ClientSearch() {
                     <JournalCard journal={journal} />
                     {(index + 1) % 6 === 0 && (
                       <div className="my-6">
-                        <AdUnit slotId={`inline-ad-journal-${index}`} width={0} height={90} className="w-full h-[90px]" />
+                        <AdUnit
+                          slotId={`inline-ad-journal-${index}`}
+                          width={0}
+                          height={90}
+                          className="w-full h-[90px]"
+                        />
                       </div>
                     )}
                   </div>
@@ -291,7 +454,12 @@ export default function ClientSearch() {
                     <AuthorCard author={author} />
                     {(index + 1) % 6 === 0 && (
                       <div className="my-6">
-                        <AdUnit slotId={`inline-ad-author-${index}`} width={0} height={90} className="w-full h-[90px]" />
+                        <AdUnit
+                          slotId={`inline-ad-author-${index}`}
+                          width={0}
+                          height={90}
+                          className="w-full h-[90px]"
+                        />
                       </div>
                     )}
                   </div>
@@ -302,7 +470,12 @@ export default function ClientSearch() {
                     <PaperCard paper={paper} />
                     {(index + 1) % 6 === 0 && (
                       <div className="my-6">
-                        <AdUnit slotId={`inline-ad-paper-${index}`} width={0} height={90} className="w-full h-[90px]" />
+                        <AdUnit
+                          slotId={`inline-ad-paper-${index}`}
+                          width={0}
+                          height={90}
+                          className="w-full h-[90px]"
+                        />
                       </div>
                     )}
                   </div>
@@ -315,8 +488,8 @@ export default function ClientSearch() {
           {searchType !== 'all' && !loading && totalPages > 1 && (
             <div className="mt-10 flex items-center justify-center gap-2">
               {page > 1 && (
-                <Link 
-                  href={`/search?q=${encodeURIComponent(q)}&page=${page - 1}${sort ? `&sort=${sort}` : ''}${typeParamValue[searchType] ? `&type=${typeParamValue[searchType]}` : ''}`}
+                <Link
+                  href={buildPageHref(page - 1)}
                   className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white transition-colors"
                 >
                   Previous
@@ -326,8 +499,8 @@ export default function ClientSearch() {
                 Page {page} of {Math.min(totalPages, 500).toLocaleString()}
               </span>
               {page < Math.min(totalPages, 500) && (
-                <Link 
-                  href={`/search?q=${encodeURIComponent(q)}&page=${page + 1}${sort ? `&sort=${sort}` : ''}${typeParamValue[searchType] ? `&type=${typeParamValue[searchType]}` : ''}`}
+                <Link
+                  href={buildPageHref(page + 1)}
                   className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white transition-colors"
                 >
                   Next
