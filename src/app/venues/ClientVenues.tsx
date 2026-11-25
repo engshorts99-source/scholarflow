@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import JournalMultiSelect from "@/components/JournalMultiSelect";
 import VenueEcosystemGraph from "@/components/VenueEcosystemGraph";
 import PaperCard from "@/components/PaperCard";
+import { RateLimitHelpBanner } from "@/components/ApiKeyControl";
 import {
   ArticleCategory,
   SelectedJournalItem,
@@ -33,6 +34,7 @@ import {
   ChevronUp,
   Compass,
   Calendar,
+  Play,
 } from "lucide-react";
 
 const QUICK_TOPIC_IDEAS = [
@@ -46,166 +48,201 @@ const QUICK_TOPIC_IDEAS = [
   "organoid",
 ];
 
+function parseJournalsFromParams(
+  searchParams: ReturnType<typeof useSearchParams>
+): SelectedJournalItem[] {
+  const presetParam = searchParams.get("preset");
+  if (presetParam) {
+    const found = JOURNAL_PRESETS.find((p) => p.id === presetParam);
+    if (found) return found.journals;
+  }
+
+  const journalsParam = searchParams.get("journals");
+  const namesParam = searchParams.get("jnames");
+  if (journalsParam) {
+    const ids = journalsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const names = namesParam ? namesParam.split("|") : [];
+    if (ids.length > 0) {
+      return ids.map((id, idx) => {
+        const clean = id.startsWith("S") ? id : `S${id}`;
+        return {
+          id: clean,
+          name: resolveJournalName(clean, names[idx] || clean),
+        };
+      });
+    }
+  }
+
+  return JOURNAL_PRESETS[0].journals;
+}
+
 export default function ClientVenues() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentYear = new Date().getFullYear();
 
-  // Parse initial state from URL
-  const parsedJournals: SelectedJournalItem[] = useMemo(() => {
-    const presetParam = searchParams.get("preset");
-    if (presetParam) {
-      const found = JOURNAL_PRESETS.find((p) => p.id === presetParam);
-      if (found) return found.journals;
-    }
-
-    const journalsParam = searchParams.get("journals");
-    const namesParam = searchParams.get("jnames");
-    if (journalsParam) {
-      const ids = journalsParam
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const names = namesParam ? namesParam.split("|") : [];
-      if (ids.length > 0) {
-        return ids.map((id, idx) => {
-          const clean = id.startsWith("S") ? id : `S${id}`;
-          return {
-            id: clean,
-            name: resolveJournalName(clean, names[idx] || clean),
-          };
-        });
-      }
-    }
-
-    // Default to CNS Flagship (Nature, Cell, Science)
-    return JOURNAL_PRESETS[0].journals;
-  }, [searchParams]);
-
-  const articleTypeParam = searchParams.get("articleType");
-  const articleType: ArticleCategory =
-    articleTypeParam === "review" || articleTypeParam === "both"
-      ? articleTypeParam
-      : "research";
-
-  const roleParam = searchParams.get("role");
-  const teamRoleMode: "pi" | "all" = roleParam === "all" ? "all" : "pi";
-
-  const yearsSpan = useMemo(() => {
+  // Draft (staged) filter controls — changing these does NOT fire API calls until Search is clicked!
+  const [draftJournals, setDraftJournals] = useState<SelectedJournalItem[]>(() =>
+    parseJournalsFromParams(searchParams)
+  );
+  const [draftArticleType, setDraftArticleType] = useState<ArticleCategory>(() => {
+    const raw = searchParams.get("articleType");
+    return raw === "review" || raw === "both" ? raw : "research";
+  });
+  const [draftYears, setDraftYears] = useState<number>(() => {
     const raw = parseInt(searchParams.get("years") || "2", 10);
-    if ([1, 2, 3, 5].includes(raw)) return raw;
-    return 2;
-  }, [searchParams]);
+    return [1, 2, 3, 5].includes(raw) ? raw : 2;
+  });
+  const [draftRole, setDraftRole] = useState<"pi" | "all">(() =>
+    searchParams.get("role") === "all" ? "all" : "pi"
+  );
+  const [draftQuery, setDraftQuery] = useState<string>(
+    () => (searchParams.get("q") || "").trim()
+  );
 
-  const yearFrom = currentYear - (yearsSpan - 1);
-  const yearTo = currentYear;
-
-  const urlQuery = (searchParams.get("q") || "").trim();
-
-  const [topicInput, setTopicInput] = useState(urlQuery);
   const [analysis, setAnalysis] = useState<VenueRadarAnalysis | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [hasExecuted, setHasExecuted] = useState(false);
+  const [lastExecutedSig, setLastExecutedSig] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [expandedTeamIds, setExpandedTeamIds] = useState<Record<string, boolean>>({});
+  const [expandedTeamIds, setExpandedTeamIds] = useState<
+    Record<string, boolean>
+  >({});
   const [paperTab, setPaperTab] = useState<"cited" | "latest">("cited");
 
+  // Sync draft state when navigating from external preset links (without auto-firing unless &run=1)
   useEffect(() => {
-    setTopicInput(urlQuery);
-  }, [urlQuery]);
+    setDraftJournals(parseJournalsFromParams(searchParams));
+    const rawArt = searchParams.get("articleType");
+    setDraftArticleType(
+      rawArt === "review" || rawArt === "both" ? rawArt : "research"
+    );
+    const rawYrs = parseInt(searchParams.get("years") || "2", 10);
+    setDraftYears([1, 2, 3, 5].includes(rawYrs) ? rawYrs : 2);
+    setDraftRole(searchParams.get("role") === "all" ? "all" : "pi");
+    setDraftQuery((searchParams.get("q") || "").trim());
+  }, [searchParams]);
 
-  const updateUrl = useCallback(
-    (next: {
+  const makeSignature = (
+    journals: SelectedJournalItem[],
+    art: ArticleCategory,
+    yrs: number,
+    role: "pi" | "all",
+    q: string
+  ) =>
+    `${journals.map((j) => j.id).join(",")}|${art}|${yrs}|${role}|${q.trim().toLowerCase()}`;
+
+  const currentDraftSig = makeSignature(
+    draftJournals,
+    draftArticleType,
+    draftYears,
+    draftRole,
+    draftQuery
+  );
+  const isDirty = hasExecuted && currentDraftSig !== lastExecutedSig;
+
+  const executeSearch = useCallback(
+    async (overrides?: {
       journals?: SelectedJournalItem[];
       articleType?: ArticleCategory;
       years?: number;
       role?: "pi" | "all";
       q?: string;
     }) => {
-      const targetJournals = next.journals ?? parsedJournals;
-      const targetArticle = next.articleType ?? articleType;
-      const targetYears = next.years ?? yearsSpan;
-      const targetRole = next.role ?? teamRoleMode;
-      const targetQ = next.q !== undefined ? next.q.trim() : urlQuery;
+      const targetJournals = overrides?.journals ?? draftJournals;
+      const targetArt = overrides?.articleType ?? draftArticleType;
+      const targetYears = overrides?.years ?? draftYears;
+      const targetRole = overrides?.role ?? draftRole;
+      const targetQ =
+        overrides?.q !== undefined ? overrides.q.trim() : draftQuery.trim();
 
-      const params = new URLSearchParams();
-      if (targetJournals.length > 0) {
-        // Check if matches a known preset cleanly
-        const matchingPreset = JOURNAL_PRESETS.find(
-          (pr) =>
-            pr.journals.length === targetJournals.length &&
-            pr.journals.every((pj, i) => pj.id === targetJournals[i].id)
-        );
-        if (matchingPreset) {
-          params.set("preset", matchingPreset.id);
-        } else {
-          params.set(
-            "journals",
-            targetJournals.map((j) => j.id).join(",")
-          );
-          params.set(
-            "jnames",
-            targetJournals.map((j) => j.name).join("|")
-          );
-        }
+      if (targetJournals.length === 0) {
+        setError("Please select at least one journal before searching.");
+        return;
       }
 
-      params.set("articleType", targetArticle);
+      // Sync URL quietly for shareability
+      const params = new URLSearchParams();
+      const matchingPreset = JOURNAL_PRESETS.find(
+        (pr) =>
+          pr.journals.length === targetJournals.length &&
+          pr.journals.every((pj, i) => pj.id === targetJournals[i].id)
+      );
+      if (matchingPreset) {
+        params.set("preset", matchingPreset.id);
+      } else {
+        params.set(
+          "journals",
+          targetJournals.map((j) => j.id).join(",")
+        );
+        params.set(
+          "jnames",
+          targetJournals.map((j) => j.name).join("|")
+        );
+      }
+      params.set("articleType", targetArt);
       params.set("years", String(targetYears));
       if (targetRole !== "pi") params.set("role", targetRole);
       if (targetQ) params.set("q", targetQ);
+      router.replace(`/venues?${params.toString()}`, { scroll: false });
 
-      router.push(`/venues?${params.toString()}`);
+      const sig = makeSignature(
+        targetJournals,
+        targetArt,
+        targetYears,
+        targetRole,
+        targetQ
+      );
+
+      setHasExecuted(true);
+      setLoading(true);
+      setError(null);
+
+      try {
+        const res = await analyzeVenueLandscape({
+          journals: targetJournals,
+          articleType: targetArt,
+          teamRoleMode: targetRole,
+          yearFrom: currentYear - (targetYears - 1),
+          yearTo: currentYear,
+          query: targetQ,
+        });
+        setAnalysis(res);
+        setLastExecutedSig(sig);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to analyze selected journals."
+        );
+      } finally {
+        setLoading(false);
+      }
     },
-    [parsedJournals, articleType, yearsSpan, teamRoleMode, urlQuery, router]
+    [
+      draftJournals,
+      draftArticleType,
+      draftYears,
+      draftRole,
+      draftQuery,
+      currentYear,
+      router,
+    ]
   );
 
-  // Run analysis whenever filters change
-  const journalKey = parsedJournals.map((j) => j.id).join(",");
-
+  // Only auto-execute when explicitly triggered by SearchBar submit (?run=1)
   useEffect(() => {
-    if (parsedJournals.length === 0) {
-      setAnalysis(null);
-      setLoading(false);
-      return;
+    if (searchParams.get("run") === "1" && !hasExecuted && !loading) {
+      executeSearch();
     }
+  }, [searchParams, hasExecuted, loading, executeSearch]);
 
-    let isMounted = true;
-    setLoading(true);
-    setError(null);
-
-    analyzeVenueLandscape({
-      journals: parsedJournals,
-      articleType,
-      teamRoleMode,
-      yearFrom,
-      yearTo,
-      query: urlQuery,
-    })
-      .then((res) => {
-        if (isMounted) setAnalysis(res);
-      })
-      .catch((err) => {
-        if (isMounted) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to analyze selected journals."
-          );
-        }
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journalKey, articleType, teamRoleMode, yearFrom, yearTo, urlQuery]);
-
-  const handleTopicSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    updateUrl({ q: topicInput });
+    executeSearch();
   };
 
   const toggleTeamExpand = (teamId: string) => {
@@ -213,17 +250,30 @@ export default function ClientVenues() {
   };
 
   const fullSearchHref = useMemo(() => {
+    const activeJournals = analysis?.journals ?? draftJournals;
+    const activeArt = analysis?.articleType ?? draftArticleType;
+    const activeQ = analysis?.query ?? draftQuery.trim();
+    const yFrom = analysis?.yearFrom ?? currentYear - (draftYears - 1);
+    const yTo = analysis?.yearTo ?? currentYear;
+
     const p = new URLSearchParams();
-    if (urlQuery) p.set("q", urlQuery);
-    if (parsedJournals.length > 0) {
-      p.set("journalId", parsedJournals.map((j) => j.id).join(","));
+    if (activeQ) p.set("q", activeQ);
+    if (activeJournals.length > 0) {
+      p.set("journalId", activeJournals.map((j) => j.id).join(","));
     }
-    p.set("articleType", articleType);
-    p.set("yearFrom", String(yearFrom));
-    p.set("yearTo", String(yearTo));
+    p.set("articleType", activeArt);
+    p.set("yearFrom", String(yFrom));
+    p.set("yearTo", String(yTo));
     p.set("sort", "citations");
     return `/search?${p.toString()}`;
-  }, [urlQuery, parsedJournals, articleType, yearFrom, yearTo]);
+  }, [
+    analysis,
+    draftJournals,
+    draftArticleType,
+    draftQuery,
+    draftYears,
+    currentYear,
+  ]);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl space-y-8">
@@ -239,22 +289,21 @@ export default function ClientVenues() {
           </span>
         </h1>
         <p className="text-sm md:text-base text-gray-400 max-w-3xl">
-          Select <strong className="text-gray-200">Nature, Cell, Science</strong> or any custom combination of journals (e.g.,{" "}
-          <strong className="text-gray-200">Nature Immunology + Science Immunology + Immunity</strong>) to uncover which research labs publish there repeatedly, how teams connect, and which research topics dominate.
+          Configure your journals (<strong className="text-gray-200">Nature, Cell, Science</strong>,{" "}
+          <strong className="text-gray-200">Nature Immunology + Science Immunology</strong>, etc.) and article type below, then click{" "}
+          <strong className="text-mint-300">Search Radar</strong> to run.
         </p>
       </div>
 
-      {/* Control Deck */}
+      {/* Staged Control Deck (Zero API calls until Search Radar is clicked!) */}
       <section className="bg-white/[0.02] border border-white/10 rounded-2xl p-5 md:p-6 space-y-5 shadow-xl">
         {/* 1. Multi-Journal Picker */}
         <JournalMultiSelect
-          selected={parsedJournals}
-          onChange={(next) => {
-            if (next.length > 0) updateUrl({ journals: next });
-          }}
+          selected={draftJournals}
+          onChange={setDraftJournals}
         />
 
-        {/* 2. Article Type (Research incl. Letters vs Review vs Both) + Time Window + Team Mode */}
+        {/* 2. Article Type + Time Window + Team Mode */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-3 border-t border-white/10">
           {/* Article Type 3-Way Selector */}
           <div className="lg:col-span-6 space-y-1.5">
@@ -265,9 +314,9 @@ export default function ClientVenues() {
             <div className="grid grid-cols-3 gap-1.5 bg-black/40 p-1 rounded-xl border border-white/10">
               <button
                 type="button"
-                onClick={() => updateUrl({ articleType: "research" })}
+                onClick={() => setDraftArticleType("research")}
                 className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
-                  articleType === "research"
+                  draftArticleType === "research"
                     ? "bg-blue-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
@@ -276,9 +325,9 @@ export default function ClientVenues() {
               </button>
               <button
                 type="button"
-                onClick={() => updateUrl({ articleType: "review" })}
+                onClick={() => setDraftArticleType("review")}
                 className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
-                  articleType === "review"
+                  draftArticleType === "review"
                     ? "bg-purple-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
@@ -287,9 +336,9 @@ export default function ClientVenues() {
               </button>
               <button
                 type="button"
-                onClick={() => updateUrl({ articleType: "both" })}
+                onClick={() => setDraftArticleType("both")}
                 className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
-                  articleType === "both"
+                  draftArticleType === "both"
                     ? "bg-emerald-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
@@ -310,9 +359,9 @@ export default function ClientVenues() {
                 <button
                   key={yr}
                   type="button"
-                  onClick={() => updateUrl({ years: yr })}
+                  onClick={() => setDraftYears(yr)}
                   className={`py-2 rounded-lg text-xs font-semibold transition-all ${
-                    yearsSpan === yr
+                    draftYears === yr
                       ? "bg-amber-500/25 border border-amber-500/40 text-amber-200"
                       : "text-gray-400 hover:text-white"
                   }`}
@@ -332,9 +381,9 @@ export default function ClientVenues() {
             <div className="grid grid-cols-2 gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
               <button
                 type="button"
-                onClick={() => updateUrl({ role: "pi" })}
+                onClick={() => setDraftRole("pi")}
                 className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
-                  teamRoleMode === "pi"
+                  draftRole === "pi"
                     ? "bg-mint-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
@@ -344,9 +393,9 @@ export default function ClientVenues() {
               </button>
               <button
                 type="button"
-                onClick={() => updateUrl({ role: "all" })}
+                onClick={() => setDraftRole("all")}
                 className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
-                  teamRoleMode === "all"
+                  draftRole === "all"
                     ? "bg-mint-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
@@ -358,79 +407,117 @@ export default function ClientVenues() {
           </div>
         </div>
 
-        {/* 3. Optional Topic / Keyword Search within Selected Journals */}
-        <div className="pt-2 border-t border-white/10 space-y-2">
-          <form onSubmit={handleTopicSubmit} className="flex gap-2">
+        {/* 3. Topic Input + Explicit Search Radar Trigger Button */}
+        <div className="pt-3 border-t border-white/10 space-y-3">
+          <form onSubmit={handleFormSubmit} className="flex flex-col sm:flex-row gap-2.5">
             <div className="relative flex-1">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="text"
-                value={topicInput}
-                onChange={(e) => setTopicInput(e.target.value)}
-                placeholder="Optional: narrow by research topic, cell type, gene, or method (leave blank for all fields)..."
-                className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 pl-10 pr-9 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-mint-500 transition-colors"
+                value={draftQuery}
+                onChange={(e) => setDraftQuery(e.target.value)}
+                placeholder="Optional topic filter (e.g., T cell exhaustion, CAR-T, spatial transcriptomics — or leave blank for all fields)..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-9 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-mint-500 transition-colors"
               />
-              {topicInput && (
+              {draftQuery && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setTopicInput("");
-                    updateUrl({ q: "" });
-                  }}
+                  onClick={() => setDraftQuery("")}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
             </div>
+
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors shrink-0"
+              disabled={loading || draftJournals.length === 0}
+              className={`px-7 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all shrink-0 shadow-lg disabled:opacity-50 ${
+                !hasExecuted || isDirty
+                  ? "bg-gradient-to-r from-amber-500 via-emerald-500 to-blue-600 hover:from-amber-400 hover:to-blue-500 text-white shadow-emerald-900/30"
+                  : "bg-blue-600 hover:bg-blue-500 text-white"
+              }`}
             >
-              Filter Radar
+              <Play className="w-4 h-4 fill-current" />
+              <span>{loading ? "Analyzing..." : "Search Radar"}</span>
             </button>
           </form>
 
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-gray-500 mr-1">Quick topic focus:</span>
-            {QUICK_TOPIC_IDEAS.map((idea) => (
-              <button
-                key={idea}
-                type="button"
-                onClick={() => updateUrl({ q: urlQuery === idea ? "" : idea })}
-                className={`px-2.5 py-0.5 rounded-full border transition-colors ${
-                  urlQuery.toLowerCase() === idea.toLowerCase()
-                    ? "bg-mint-500/20 border-mint-500/40 text-mint-300"
-                    : "bg-white/[0.02] border-white/10 text-gray-400 hover:text-white"
-                }`}
-              >
-                {idea}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-gray-500 mr-1">Quick topic:</span>
+              {QUICK_TOPIC_IDEAS.map((idea) => (
+                <button
+                  key={idea}
+                  type="button"
+                  onClick={() =>
+                    setDraftQuery((prev) => (prev === idea ? "" : idea))
+                  }
+                  className={`px-2.5 py-0.5 rounded-full border transition-colors ${
+                    draftQuery.toLowerCase() === idea.toLowerCase()
+                      ? "bg-mint-500/20 border-mint-500/40 text-mint-300"
+                      : "bg-white/[0.02] border-white/10 text-gray-400 hover:text-white"
+                  }`}
+                >
+                  {idea}
+                </button>
+              ))}
+            </div>
+
+            {isDirty && !loading && (
+              <span className="text-amber-300 font-medium">
+                Filters modified — click Search Radar to update results
+              </span>
+            )}
           </div>
         </div>
       </section>
 
+      {/* Initial Ready State before first Search click */}
+      {!hasExecuted && !loading && (
+        <div className="py-16 px-6 rounded-2xl border border-dashed border-white/15 bg-white/[0.01] text-center space-y-4">
+          <div className="inline-flex p-3.5 rounded-full bg-amber-500/10 text-amber-300">
+            <Award className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-white font-space">
+            Ready to Scan {draftJournals.map((j) => j.name).join(" + ")}
+          </h2>
+          <p className="text-sm text-gray-400 max-w-xl mx-auto">
+            Select as many journals as you want above, pick{" "}
+            <strong className="text-gray-200">Research (incl. Letters)</strong>,{" "}
+            <strong className="text-gray-200">Review Only</strong>, or{" "}
+            <strong className="text-gray-200">Both</strong>, and press{" "}
+            <strong className="text-mint-300">Search Radar</strong> to run a single batched query.
+          </p>
+          <button
+            type="button"
+            onClick={() => executeSearch()}
+            className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-emerald-500 to-blue-600 hover:from-amber-400 hover:to-blue-500 text-white font-semibold text-sm shadow-lg"
+          >
+            <Play className="w-4 h-4 fill-current" />
+            Search Radar Now
+          </button>
+        </div>
+      )}
+
       {/* Loading & Error States */}
       {loading && (
-        <div className="py-24 flex flex-col items-center justify-center gap-4 text-gray-400">
+        <div className="py-20 flex flex-col items-center justify-center gap-4 text-gray-400">
           <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-sm">
-            Scanning {parsedJournals.map((j) => j.name).join(", ")} ({yearFrom}–
-            {yearTo}) for streak research teams &amp; topic synergies...
+            Scanning {draftJournals.map((j) => j.name).join(", ")} for streak research teams &amp; topic synergies...
           </p>
         </div>
       )}
 
       {!loading && error && (
-        <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-300">
-          {error}
-        </div>
+        <RateLimitHelpBanner error={error} onRetry={() => executeSearch()} />
       )}
 
       {!loading && !error && analysis && (
         <>
-          {/* Summary Bar: Venue Counts + Article Mode + Full Search Link */}
+          {/* Summary Bar */}
           <section className="rounded-2xl border border-white/10 bg-gradient-to-r from-amber-950/20 via-white/[0.02] to-blue-950/25 p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2 text-sm text-gray-200">
@@ -438,9 +525,9 @@ export default function ClientVenues() {
                   {analysis.totalMatchingWorks.toLocaleString()}
                 </span>
                 <span>
-                  {articleType === "research"
+                  {analysis.articleType === "research"
                     ? "Research Articles (incl. Letters)"
-                    : articleType === "review"
+                    : analysis.articleType === "review"
                     ? "Review Articles"
                     : "Research & Review Works"}{" "}
                   published in{" "}
@@ -494,24 +581,25 @@ export default function ClientVenues() {
               topics={analysis.topics}
               topicEdges={analysis.topicEdges}
               teamTopicLinks={analysis.teamTopicLinks}
-              onSelectTopicFilter={(topic) => updateUrl({ q: topic })}
+              onSelectTopicFilter={(topic) => {
+                setDraftQuery(topic);
+                executeSearch({ q: topic });
+              }}
             />
           )}
 
           {/* Streak Research Teams Leaderboard */}
           <section className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-              <div>
-                <h2 className="text-2xl font-bold text-white font-space flex items-center gap-2">
-                  <Flame className="w-6 h-6 text-amber-400" />
-                  High-Frequency &amp; Consecutive Streak Research Teams
-                </h2>
-                <p className="text-sm text-gray-400 mt-0.5">
-                  {teamRoleMode === "pi"
-                    ? "Ranked by Corresponding / Senior PI leadership across your selected journals."
-                    : "Ranked across all authorship positions in your selected journals."}
-                </p>
-              </div>
+            <div>
+              <h2 className="text-2xl font-bold text-white font-space flex items-center gap-2">
+                <Flame className="w-6 h-6 text-amber-400" />
+                High-Frequency &amp; Consecutive Streak Research Teams
+              </h2>
+              <p className="text-sm text-gray-400 mt-0.5">
+                {analysis.teamRoleMode === "pi"
+                  ? "Ranked by Corresponding / Senior PI leadership across your selected journals."
+                  : "Ranked across all authorship positions in your selected journals."}
+              </p>
             </div>
 
             {analysis.teams.length === 0 ? (
@@ -532,7 +620,6 @@ export default function ClientVenues() {
                       className="rounded-2xl bg-white/[0.02] border border-white/10 hover:border-white/20 p-5 space-y-4 flex flex-col justify-between transition-colors"
                     >
                       <div className="space-y-3">
-                        {/* Rank + Name + Streak */}
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -572,7 +659,6 @@ export default function ClientVenues() {
                           </div>
                         </div>
 
-                        {/* Streak + Per-Journal Pills */}
                         <div className="flex flex-wrap items-center gap-1.5">
                           {team.streakYears >= 2 && (
                             <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-300 font-semibold">
@@ -594,16 +680,15 @@ export default function ClientVenues() {
                           ))}
                         </div>
 
-                        {/* Topics & Key Team Members */}
                         {team.topTopics.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
                             {team.topTopics.slice(0, 3).map((tp) => (
                               <button
                                 key={tp}
                                 type="button"
-                                onClick={() => updateUrl({ q: tp })}
+                                onClick={() => setDraftQuery(tp)}
                                 className="text-[11px] px-2 py-0.5 rounded bg-white/[0.04] hover:bg-blue-500/20 border border-white/10 text-gray-300 transition-colors"
-                                title="Filter Radar by this topic"
+                                title="Set topic filter (click Search Radar to run)"
                               >
                                 {tp}
                               </button>
@@ -626,7 +711,6 @@ export default function ClientVenues() {
                           </div>
                         )}
 
-                        {/* Exact Papers in Selected Journals */}
                         <div className="space-y-2 pt-1">
                           {visiblePapers.map((p) => (
                             <Link
@@ -691,15 +775,14 @@ export default function ClientVenues() {
           {/* Dominant Fields & Hot Keywords Breakdown */}
           {(analysis.topics.length > 0 || analysis.hotKeywords.length > 0) && (
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Dominant Topics */}
               <div className="lg:col-span-7 bg-white/[0.02] border border-white/10 rounded-2xl p-5 md:p-6 space-y-4">
                 <div>
                   <h3 className="text-xl font-semibold text-white font-space flex items-center gap-2">
                     <BookOpen className="w-5 h-5 text-purple-400" />
-                    What Topics Dominate These Journals?
+                    Dominant Topics in Sampled Works
                   </h3>
                   <p className="text-xs text-gray-400 mt-1">
-                    Click any topic to focus the Lab Radar on teams competing in that exact area, or open it in Concept Atlas.
+                    Click a topic to stage it in the filter bar above, or open it in Concept Atlas.
                   </p>
                 </div>
 
@@ -718,14 +801,14 @@ export default function ClientVenues() {
                         <div className="flex items-center justify-between gap-3">
                           <button
                             type="button"
-                            onClick={() => updateUrl({ q: tp.name })}
+                            onClick={() => setDraftQuery(tp.name)}
                             className="text-sm font-medium text-white hover:text-mint-300 text-left transition-colors"
                           >
                             {tp.name}
                           </button>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-xs text-gray-400">
-                              {tp.count.toLocaleString()} papers
+                              {tp.count} sampled ({tp.sharePct}%)
                             </span>
                             <Link
                               href={`/concept?q=${encodeURIComponent(tp.name)}`}
@@ -748,7 +831,6 @@ export default function ClientVenues() {
                 </div>
               </div>
 
-              {/* Specific Trending Keywords */}
               <div className="lg:col-span-5 bg-white/[0.02] border border-white/10 rounded-2xl p-5 md:p-6 space-y-4">
                 <div>
                   <h3 className="text-xl font-semibold text-white font-space flex items-center gap-2">
@@ -756,7 +838,7 @@ export default function ClientVenues() {
                     High-Frequency Keywords
                   </h3>
                   <p className="text-xs text-gray-400 mt-1">
-                    Granular biological mechanisms, methods, and technologies appearing across these venues.
+                    Click any keyword to stage it in the filter input above.
                   </p>
                 </div>
 
@@ -765,12 +847,12 @@ export default function ClientVenues() {
                     <button
                       key={kw.name}
                       type="button"
-                      onClick={() => updateUrl({ q: kw.name })}
+                      onClick={() => setDraftQuery(kw.name)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-mint-500/20 border border-white/10 hover:border-mint-500/30 text-xs text-gray-200 transition-colors"
                     >
                       <span>{kw.name}</span>
                       <span className="text-[10px] text-gray-500">
-                        {kw.count.toLocaleString()}
+                        {kw.count}
                       </span>
                     </button>
                   ))}
@@ -779,7 +861,7 @@ export default function ClientVenues() {
             </section>
           )}
 
-          {/* Direct Paper Browser for Selected Venues */}
+          {/* Direct Paper Browser */}
           <section className="space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
               <div className="flex gap-2">

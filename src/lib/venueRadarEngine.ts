@@ -71,6 +71,11 @@ function computeLongestConsecutiveStreak(sortedYears: number[]): number {
   return best;
 }
 
+/**
+ * Low-credit Venue Radar Engine:
+ * Uses only 3–4 OpenAlex calls total (down from 10!), deriving topics, keywords,
+ * year counts, and network relationships locally from the fetched work pool.
+ */
 export async function analyzeVenueLandscape(args: {
   journals: SelectedJournalItem[];
   articleType: ArticleCategory;
@@ -115,120 +120,13 @@ export async function analyzeVenueLandscape(args: {
   }
 
   const baseFilter = filterParts.join(",");
-  const authorGroupFilter =
-    articleType === "both" ? `${baseFilter},authors_count:>1` : baseFilter;
+  const groupField =
+    teamRoleMode === "pi" ? "corresponding_author_ids" : "authorships.author.id";
+  const groupFilter =
+    teamRoleMode === "all" && articleType === "both"
+      ? `${baseFilter},authors_count:>1`
+      : baseFilter;
 
-  // Step 1: Run 6 fast parallel OpenAlex group_by aggregations
-  const [
-    corrGroupData,
-    allAuthGroupData,
-    topicGroupData,
-    kwGroupData,
-    journalGroupData,
-    yearGroupData,
-  ] = await Promise.all([
-    fetchOpenAlexJson(
-      buildWorksUrl({
-        filter: baseFilter,
-        group_by: "corresponding_author_ids",
-        "per-page": "25",
-      })
-    ).catch(() => null),
-    fetchOpenAlexJson(
-      buildWorksUrl({
-        filter: authorGroupFilter,
-        group_by: "authorships.author.id",
-        "per-page": "25",
-      })
-    ).catch(() => null),
-    fetchOpenAlexJson(
-      buildWorksUrl({
-        filter: baseFilter,
-        group_by: "primary_topic.id",
-        "per-page": "16",
-      })
-    ).catch(() => null),
-    fetchOpenAlexJson(
-      buildWorksUrl({
-        filter: baseFilter,
-        group_by: "keywords.id",
-        "per-page": "24",
-      })
-    ).catch(() => null),
-    fetchOpenAlexJson(
-      buildWorksUrl({
-        filter: baseFilter,
-        group_by: "primary_location.source.id",
-        "per-page": "20",
-      })
-    ).catch(() => null),
-    fetchOpenAlexJson(
-      buildWorksUrl({
-        filter: baseFilter,
-        group_by: "publication_year",
-      })
-    ).catch(() => null),
-  ]);
-
-  const totalMatchingWorks =
-    yearGroupData?.meta?.count ??
-    journalGroupData?.meta?.count ??
-    allAuthGroupData?.meta?.count ??
-    0;
-
-  // Step 2: Select top 18 candidate Research Teams / Labs
-  const candidateMap = new Map<
-    string,
-    { id: string; name: string; piCount: number; allCount: number }
-  >();
-
-  const corrRows: Array<{ key?: string; key_display_name?: string; count?: number }> =
-    corrGroupData?.group_by || [];
-  const authRows: Array<{ key?: string; key_display_name?: string; count?: number }> =
-    allAuthGroupData?.group_by || [];
-
-  for (const r of corrRows) {
-    const id = normalizeAuthorId(String(r.key || ""));
-    const name = String(r.key_display_name || "").trim();
-    if (!id || !name || id === "Anull") continue;
-    candidateMap.set(id, {
-      id,
-      name,
-      piCount: Number(r.count) || 0,
-      allCount: Number(r.count) || 0,
-    });
-  }
-
-  for (const r of authRows) {
-    const id = normalizeAuthorId(String(r.key || ""));
-    const name = String(r.key_display_name || "").trim();
-    if (!id || !name || id === "Anull") continue;
-    const existing = candidateMap.get(id);
-    if (existing) {
-      existing.allCount = Math.max(existing.allCount, Number(r.count) || 0);
-    } else {
-      candidateMap.set(id, {
-        id,
-        name,
-        piCount: 0,
-        allCount: Number(r.count) || 0,
-      });
-    }
-  }
-
-  const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => {
-    if (teamRoleMode === "pi") {
-      if (b.piCount !== a.piCount) return b.piCount - a.piCount;
-      return b.allCount - a.allCount;
-    }
-    if (b.allCount !== a.allCount) return b.allCount - a.allCount;
-    return b.piCount - a.piCount;
-  });
-
-  const selectedCandidates = sortedCandidates.slice(0, 18);
-  const candidateIds = selectedCandidates.map((c) => c.id);
-
-  // Step 3: Batch fetch actual papers of those top 18 teams + overall top/latest papers
   const selectFields = [
     "id",
     "doi",
@@ -248,58 +146,111 @@ export async function analyzeVenueLandscape(args: {
     "referenced_works_count",
   ].join(",");
 
-  const [teamCitedData, teamRecentData, topVenueData, latestVenueData] =
-    await Promise.all([
-      candidateIds.length > 0
-        ? fetchOpenAlexJson(
-            buildWorksUrl({
-              filter: `${baseFilter},authorships.author.id:${candidateIds.join("|")}`,
-              sort: "cited_by_count:desc",
-              "per-page": "100",
-              select: selectFields,
-            })
-          ).catch(() => null)
-        : Promise.resolve(null),
-      candidateIds.length > 0
-        ? fetchOpenAlexJson(
-            buildWorksUrl({
-              filter: `${baseFilter},authorships.author.id:${candidateIds.join("|")}`,
-              sort: "publication_date:desc",
-              "per-page": "100",
-              select: selectFields,
-            })
-          ).catch(() => null)
-        : Promise.resolve(null),
-      fetchOpenAlexJson(
-        buildWorksUrl({
-          filter: baseFilter,
-          sort: "cited_by_count:desc",
-          "per-page": "20",
-        })
-      ).catch(() => null),
-      fetchOpenAlexJson(
-        buildWorksUrl({
-          filter: baseFilter,
-          sort: "publication_date:desc",
-          "per-page": "20",
-        })
-      ).catch(() => null),
-    ]);
+  // Phase 1: Just 2–3 parallel calls (Author ranking + Top 120 Venue Works + Multi-journal count if >1 venue)
+  const [authorGroupData, topVenueData, journalGroupData] = await Promise.all([
+    fetchOpenAlexJson(
+      buildWorksUrl({
+        filter: groupFilter,
+        group_by: groupField,
+        "per-page": "20",
+      })
+    ),
+    fetchOpenAlexJson(
+      buildWorksUrl({
+        filter: baseFilter,
+        sort: "cited_by_count:desc",
+        "per-page": "120",
+        select: selectFields,
+      })
+    ),
+    normalizedJournals.length > 1 && !cleanQ
+      ? fetchOpenAlexJson(
+          buildWorksUrl({
+            filter: baseFilter,
+            group_by: "primary_location.source.id",
+            "per-page": "20",
+          })
+        ).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
-  const topCitedPapers = deduplicatePapers(
+  const totalMatchingWorks =
+    topVenueData?.meta?.count ?? authorGroupData?.meta?.count ?? 0;
+
+  const groupRows: Array<{
+    key?: string;
+    key_display_name?: string;
+    count?: number;
+  }> = authorGroupData?.group_by || [];
+
+  const selectedCandidates: { id: string; name: string; groupCount: number }[] = [];
+  for (const r of groupRows) {
+    const id = normalizeAuthorId(String(r.key || ""));
+    const name = String(r.key_display_name || "").trim();
+    if (!id || !name || id === "Anull") continue;
+    selectedCandidates.push({
+      id,
+      name,
+      groupCount: Number(r.count) || 0,
+    });
+    if (selectedCandidates.length >= 16) break;
+  }
+
+  // Fallback: if corresponding_author_ids returned very few rows, derive from topVenueData locally (0 extra API calls!)
+  const initialVenuePapers = deduplicatePapers(
     (topVenueData?.results || []).map(mapWorkToPaper)
   );
-  const latestPapers = deduplicatePapers(
-    (latestVenueData?.results || []).map(mapWorkToPaper)
-  );
+
+  if (selectedCandidates.length < 6 && initialVenuePapers.length > 0) {
+    const existingIds = new Set(selectedCandidates.map((c) => c.id));
+    const localCounts = new Map<string, { id: string; name: string; count: number }>();
+    for (const p of initialVenuePapers) {
+      const targetAuthors =
+        teamRoleMode === "pi"
+          ? p.authors.filter(
+              (a) => a.isCorresponding || a.position === "last"
+            )
+          : p.authors.slice(0, 8);
+      for (const a of targetAuthors) {
+        if (!a.id) continue;
+        const aid = normalizeAuthorId(a.id);
+        if (existingIds.has(aid)) continue;
+        const cur = localCounts.get(aid);
+        if (cur) cur.count += 1;
+        else localCounts.set(aid, { id: aid, name: a.name, count: 1 });
+      }
+    }
+    const extras = Array.from(localCounts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 16 - selectedCandidates.length);
+    for (const ex of extras) {
+      selectedCandidates.push({
+        id: ex.id,
+        name: ex.name,
+        groupCount: ex.count,
+      });
+    }
+  }
+
+  // Phase 2: Only 1 targeted call to fetch recent papers of the top streak candidates (if total > 120)
+  const candidateIds = selectedCandidates.map((c) => c.id);
+  const teamRecentData =
+    candidateIds.length > 0 && totalMatchingWorks > 120
+      ? await fetchOpenAlexJson(
+          buildWorksUrl({
+            filter: `${baseFilter},authorships.author.id:${candidateIds.join("|")}`,
+            sort: "publication_date:desc",
+            "per-page": "120",
+            select: selectFields,
+          })
+        ).catch(() => null)
+      : null;
 
   const paperPoolMap = new Map<string, Paper>();
-  for (const raw of [
-    ...(teamCitedData?.results || []),
-    ...(teamRecentData?.results || []),
-    ...(topVenueData?.results || []),
-    ...(latestVenueData?.results || []),
-  ]) {
+  for (const p of initialVenuePapers) {
+    if (p.id) paperPoolMap.set(p.id, p);
+  }
+  for (const raw of teamRecentData?.results || []) {
     const mapped = mapWorkToPaper(raw);
     if (mapped.id && !paperPoolMap.has(mapped.id)) {
       paperPoolMap.set(mapped.id, mapped);
@@ -307,12 +258,26 @@ export async function analyzeVenueLandscape(args: {
   }
   const allPoolPapers = deduplicatePapers(Array.from(paperPoolMap.values()));
 
+  const topCitedPapers = allPoolPapers
+    .slice()
+    .sort((a, b) => (b.citedByCount || 0) - (a.citedByCount || 0))
+    .slice(0, 20);
+
+  const latestPapers = allPoolPapers
+    .slice()
+    .sort((a, b) =>
+      (b.publicationDate || String(b.publicationYear)).localeCompare(
+        a.publicationDate || String(a.publicationYear)
+      )
+    )
+    .slice(0, 20);
+
   const journalNameMap = new Map<string, string>();
   for (const j of normalizedJournals) {
     journalNameMap.set(j.id, j.name);
   }
 
-  // Step 4: Construct rich VenueResearchTeam profiles
+  // Build VenueResearchTeam profiles
   const teams: VenueResearchTeam[] = [];
 
   for (const cand of selectedCandidates) {
@@ -342,9 +307,8 @@ export async function analyzeVenueLandscape(args: {
 
     const activePapers =
       teamRoleMode === "pi" && matchingPi.length > 0 ? matchingPi : matchingAll;
-    if (activePapers.length === 0 && cand.allCount === 0) continue;
+    if (activePapers.length === 0 && cand.groupCount === 0) continue;
 
-    // Exclude unaffiliated solo feature/journalism writers when ranking research labs
     if (
       articleType !== "review" &&
       activePapers.length > 0 &&
@@ -357,7 +321,10 @@ export async function analyzeVenueLandscape(args: {
     let institution: string | undefined;
     let countryCode: string | undefined;
 
-    const jBreakdownMap = new Map<string, { journalId: string; journalName: string; count: number }>();
+    const jBreakdownMap = new Map<
+      string,
+      { journalId: string; journalName: string; count: number }
+    >();
     const activeYearSet = new Set<number>();
     const memberCounts = new Map<string, { id: string; name: string; count: number }>();
     const topicFreq = new Map<string, number>();
@@ -403,11 +370,7 @@ export async function analyzeVenueLandscape(args: {
         kwFreq.set(cleanKw, (kwFreq.get(cleanKw) || 0) + 1);
       }
 
-      // Extract key lab members (first 4 + last 2 authors)
-      const notableAuthors = [
-        ...p.authors.slice(0, 4),
-        ...p.authors.slice(-2),
-      ];
+      const notableAuthors = [...p.authors.slice(0, 4), ...p.authors.slice(-2)];
       const seenInPaper = new Set<string>();
       for (const ma of notableAuthors) {
         if (!ma.id) continue;
@@ -423,17 +386,17 @@ export async function analyzeVenueLandscape(args: {
     const activeYears = Array.from(activeYearSet).sort((a, b) => a - b);
     const streakYears = computeLongestConsecutiveStreak(activeYears);
 
-    const expectedTotal =
-      teamRoleMode === "pi" && cand.piCount > 0 ? cand.piCount : cand.allCount;
-
     teams.push({
       id: cand.id,
       name: cand.name,
       institution,
       countryCode,
-      totalVenuePapers: Math.max(expectedTotal, activePapers.length),
+      totalVenuePapers: Math.max(cand.groupCount, activePapers.length),
       sampledPaperCount: activePapers.length,
-      piLeadCount: Math.max(cand.piCount, matchingPi.length),
+      piLeadCount:
+        teamRoleMode === "pi"
+          ? Math.max(cand.groupCount, matchingPi.length)
+          : matchingPi.length,
       totalCitations,
       streakYears,
       activeYears,
@@ -468,7 +431,7 @@ export async function analyzeVenueLandscape(args: {
       b.totalCitations - a.totalCitations
   );
 
-  // Step 5: Compute Team-to-Team Edges (Direct Co-authorship + Shared Topic Thematic Overlap)
+  // Team-to-Team Edges (Co-authorship + Shared Topic Thematic)
   const teamIdSet = new Set(teams.map((t) => t.id));
   const coauthEdgeMap = new Map<string, VenueTeamEdge>();
 
@@ -534,7 +497,7 @@ export async function analyzeVenueLandscape(args: {
       const kwB = new Set(tB.topKeywords.map((s) => s.toLowerCase()));
       const sharedKws = tA.topKeywords.filter((s) => kwB.has(s.toLowerCase()));
 
-      const score = sharedTopics.length * 2 + sharedKws.length * 1;
+      const score = sharedTopics.length * 2 + sharedKws.length;
       if (score >= 2) {
         thematicCandidates.push({
           source: tA.id,
@@ -551,55 +514,88 @@ export async function analyzeVenueLandscape(args: {
   }
 
   thematicCandidates.sort((a, b) => b.weight - a.weight);
-
   const teamEdges: VenueTeamEdge[] = [
     ...Array.from(coauthEdgeMap.values()).sort((a, b) => b.weight - a.weight),
     ...thematicCandidates.slice(0, 24),
   ];
 
-  // Step 6: Build VenueTopicCluster[], Team<->Topic links, and Topic<->Topic synergy edges
-  const topicMetaById = new Map<
+  // Derive Topics, Keywords, YearCounts, and JournalCounts locally from allPoolPapers (0 extra API calls!)
+  const topicAcc = new Map<
     string,
-    { field?: string; subfield?: string; kws: Map<string, number> }
+    {
+      id: string;
+      name: string;
+      field?: string;
+      subfield?: string;
+      count: number;
+      kws: Map<string, number>;
+    }
   >();
+  const kwGlobalAcc = new Map<string, number>();
+  const yearLocalAcc = new Map<number, number>();
+  const journalLocalAcc = new Map<string, { name: string; count: number }>();
 
   for (const p of allPoolPapers) {
-    if (!p.primaryTopic?.id) continue;
-    const tid = p.primaryTopic.id.replace("https://openalex.org/", "");
-    let meta = topicMetaById.get(tid);
-    if (!meta) {
-      meta = {
-        field: p.primaryTopic.field,
-        subfield: p.primaryTopic.subfield,
-        kws: new Map(),
-      };
-      topicMetaById.set(tid, meta);
+    if (p.publicationYear >= yearFrom && p.publicationYear <= yearTo) {
+      yearLocalAcc.set(
+        p.publicationYear,
+        (yearLocalAcc.get(p.publicationYear) || 0) + 1
+      );
     }
+
+    if (p.journal?.id) {
+      const jid = normalizeSourceId(p.journal.id);
+      const curJ = journalLocalAcc.get(jid);
+      if (curJ) curJ.count += 1;
+      else
+        journalLocalAcc.set(jid, {
+          name: p.journal.displayName || resolveJournalName(jid),
+          count: 1,
+        });
+    }
+
     for (const kw of p.keywords || []) {
-      if (GENERIC_KEYWORDS.has(kw.toLowerCase())) continue;
-      meta.kws.set(kw, (meta.kws.get(kw) || 0) + 1);
+      const cleanKw = kw.trim();
+      if (!cleanKw || GENERIC_KEYWORDS.has(cleanKw.toLowerCase())) continue;
+      kwGlobalAcc.set(cleanKw, (kwGlobalAcc.get(cleanKw) || 0) + 1);
+    }
+
+    if (p.primaryTopic?.id && p.primaryTopic.displayName) {
+      const tid = p.primaryTopic.id.replace("https://openalex.org/", "");
+      let entry = topicAcc.get(tid);
+      if (!entry) {
+        entry = {
+          id: tid,
+          name: p.primaryTopic.displayName,
+          field: p.primaryTopic.field,
+          subfield: p.primaryTopic.subfield,
+          count: 0,
+          kws: new Map(),
+        };
+        topicAcc.set(tid, entry);
+      }
+      entry.count += 1;
+      for (const kw of p.keywords || []) {
+        if (GENERIC_KEYWORDS.has(kw.toLowerCase())) continue;
+        entry.kws.set(kw, (entry.kws.get(kw) || 0) + 1);
+      }
     }
   }
+
+  const topTopicEntries = Array.from(topicAcc.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+  const topTopicIdSet = new Set(topTopicEntries.map((t) => t.id));
 
   const teamTopicLinks: VenueTeamTopicLink[] = [];
   const topicTeamsMap = new Map<string, Set<string>>();
-
-  const rawTopicGroups: Array<{ key?: string; key_display_name?: string; count?: number }> = (
-    topicGroupData?.group_by || []
-  ).slice(0, 12);
-  const topicNameLookup = new Map<string, string>();
-  for (const tg of rawTopicGroups) {
-    const tid = String(tg.key || "").replace("https://openalex.org/", "");
-    const tname = String(tg.key_display_name || "").trim();
-    if (tid && tname) topicNameLookup.set(tid, tname);
-  }
 
   for (const team of teams) {
     const perTopicCount = new Map<string, number>();
     for (const p of team.papers) {
       if (!p.primaryTopic?.id) continue;
       const tid = p.primaryTopic.id.replace("https://openalex.org/", "");
-      if (!topicNameLookup.has(tid)) continue;
+      if (!topTopicIdSet.has(tid)) continue;
       perTopicCount.set(tid, (perTopicCount.get(tid) || 0) + 1);
     }
     for (const [tid, count] of Array.from(perTopicCount.entries())) {
@@ -609,47 +605,29 @@ export async function analyzeVenueLandscape(args: {
     }
   }
 
-  const topics: VenueTopicCluster[] = rawTopicGroups
-    .map((tg) => {
-      const tid = String(tg.key || "").replace("https://openalex.org/", "");
-      const name = String(tg.key_display_name || "").trim();
-      const count = Number(tg.count) || 0;
-      const meta = topicMetaById.get(tid);
-      const topKeywords = meta
-        ? Array.from(meta.kws.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 4)
-            .map(([k]) => k)
-        : [];
-      const leadingTeamIds = Array.from(topicTeamsMap.get(tid) || []);
+  const sampledDenom = Math.max(allPoolPapers.length, 1);
+  const topics: VenueTopicCluster[] = topTopicEntries.map((t) => ({
+    id: t.id,
+    name: t.name,
+    field: t.field,
+    subfield: t.subfield,
+    count: t.count,
+    sharePct: Math.max(1, Math.round((t.count / sampledDenom) * 100)),
+    topKeywords: Array.from(t.kws.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([k]) => k),
+    leadingTeamIds: Array.from(topicTeamsMap.get(t.id) || []),
+  }));
 
-      return {
-        id: tid,
-        name,
-        field: meta?.field,
-        subfield: meta?.subfield,
-        count,
-        sharePct:
-          totalMatchingWorks > 0
-            ? Math.max(1, Math.round((count / totalMatchingWorks) * 100))
-            : 0,
-        topKeywords,
-        leadingTeamIds,
-      };
-    })
-    .filter((t) => t.id && t.name && t.count > 0);
-
-  // Topic <-> Topic Synergy Edges: connected via cross-topic teams + shared keywords
   const teamNameById = new Map(teams.map((t) => [t.id, t.name]));
   const topicEdges: VenueTopicSynergyEdge[] = [];
-
   for (let i = 0; i < topics.length; i++) {
     for (let j = i + 1; j < topics.length; j++) {
       const a = topics[i];
       const b = topics[j];
       const setB = new Set(b.leadingTeamIds);
       const sharedTeamIds = a.leadingTeamIds.filter((id) => setB.has(id));
-
       const kwSetB = new Set(b.topKeywords.map((k) => k.toLowerCase()));
       const sharedKwCount = a.topKeywords.filter((k) =>
         kwSetB.has(k.toLowerCase())
@@ -672,12 +650,13 @@ export async function analyzeVenueLandscape(args: {
       }
     }
   }
-
   topicEdges.sort((a, b) => b.weight - a.weight);
 
-  // Journal counts & year counts
-  const rawJournalGroups: Array<{ key?: string; key_display_name?: string; count?: number }> =
-    journalGroupData?.group_by || [];
+  const rawJournalGroups: Array<{
+    key?: string;
+    key_display_name?: string;
+    count?: number;
+  }> = journalGroupData?.group_by || [];
   const jCountLookup = new Map<string, { name: string; count: number }>();
   for (const jg of rawJournalGroups) {
     const jid = normalizeSourceId(String(jg.key || ""));
@@ -689,35 +668,23 @@ export async function analyzeVenueLandscape(args: {
 
   const journalCounts = normalizedJournals.map((j) => ({
     id: j.id,
-    name: j.name || jCountLookup.get(j.id)?.name || j.id,
-    count: jCountLookup.get(j.id)?.count || 0,
+    name: j.name,
+    count:
+      normalizedJournals.length === 1
+        ? totalMatchingWorks
+        : jCountLookup.get(j.id)?.count ??
+          journalLocalAcc.get(j.id)?.count ??
+          0,
   }));
 
-  const rawYearGroups: Array<{ key?: string; count?: number }> =
-    yearGroupData?.group_by || [];
-  const yearCounts: YearCount[] = rawYearGroups
-    .filter((g) => /^\d{4}$/.test(String(g.key)))
-    .map((g) => ({
-      year: parseInt(String(g.key), 10),
-      count: Number(g.count) || 0,
-    }))
-    .filter((yc: YearCount) => yc.year >= yearFrom && yc.year <= yearTo)
-    .sort((a: YearCount, b: YearCount) => a.year - b.year);
+  const yearCounts: YearCount[] = Array.from(yearLocalAcc.entries())
+    .map(([year, count]) => ({ year, count }))
+    .sort((a, b) => a.year - b.year);
 
-  const rawKwGroups: Array<{ key_display_name?: string; count?: number }> =
-    kwGroupData?.group_by || [];
-  const hotKeywords = rawKwGroups
-    .map((g) => ({
-      name: String(g.key_display_name || "").trim(),
-      count: Number(g.count) || 0,
-    }))
-    .filter(
-      (k: { name: string; count: number }) =>
-        k.name.length > 0 &&
-        k.count > 0 &&
-        !GENERIC_KEYWORDS.has(k.name.toLowerCase())
-    )
-    .slice(0, 18);
+  const hotKeywords = Array.from(kwGlobalAcc.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 18)
+    .map(([name, count]) => ({ name, count }));
 
   return {
     journals: normalizedJournals,

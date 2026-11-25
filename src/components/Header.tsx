@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Search, Compass, Award } from 'lucide-react';
+import ApiKeyControl from './ApiKeyControl';
 
 export default function Header() {
   return (
@@ -11,7 +12,7 @@ export default function Header() {
             Sch<span className="text-blue-500">ox</span>
           </span>
         </Link>
-        <nav className="flex items-center gap-4 sm:gap-6 text-xs sm:text-sm font-medium text-gray-300">
+        <nav className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm font-medium text-gray-300">
           <Link
             href="/venues"
             className="hover:text-amber-300 transition-colors flex items-center gap-1.5"
@@ -24,15 +25,16 @@ export default function Header() {
             className="hover:text-mint-400 transition-colors flex items-center gap-1.5"
           >
             <Compass className="w-4 h-4 text-mint-400" />
-            <span className="hidden xs:inline sm:inline">Concept Atlas</span>
+            <span className="hidden sm:inline">Concept Atlas</span>
             <span className="inline sm:hidden">Atlas</span>
           </Link>
           <Link href="/trending" className="hover:text-white transition-colors hidden md:inline">
             Trending
           </Link>
-          <Link href="/about" className="hover:text-white transition-colors">
+          <Link href="/about" className="hover:text-white transition-colors hidden sm:inline">
             About
           </Link>
+          <ApiKeyControl />
         </nav>
       </div>
     </header>

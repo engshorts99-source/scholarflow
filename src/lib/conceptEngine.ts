@@ -290,37 +290,22 @@ export async function getFullConceptAnalysis(
   const { activeFilter, yearCounts } = snapshot;
   const currentYear = new Date().getFullYear();
 
-  const [seminalData, frontierData, prolificData, hotKwData] =
-    await Promise.all([
-      fetchOpenAlexJson(
-        buildWorksUrl({
-          filter: activeFilter,
-          sort: "cited_by_count:desc",
-          "per-page": "25",
-        })
-      ).catch(() => null),
-      fetchOpenAlexJson(
-        buildWorksUrl({
-          filter: `${activeFilter},publication_year:${currentYear - 1}-${currentYear}`,
-          sort: "cited_by_count:desc",
-          "per-page": "25",
-        })
-      ).catch(() => null),
-      fetchOpenAlexJson(
-        buildWorksUrl({
-          filter: activeFilter,
-          group_by: "authorships.author.id",
-          "per-page": "15",
-        })
-      ).catch(() => null),
-      fetchOpenAlexJson(
-        buildWorksUrl({
-          filter: `${activeFilter},publication_year:${currentYear - 1}-${currentYear}`,
-          group_by: "keywords.id",
-          "per-page": "15",
-        })
-      ).catch(() => null),
-    ]);
+  const [seminalData, frontierData] = await Promise.all([
+    fetchOpenAlexJson(
+      buildWorksUrl({
+        filter: activeFilter,
+        sort: "cited_by_count:desc",
+        "per-page": "25",
+      })
+    ).catch(() => null),
+    fetchOpenAlexJson(
+      buildWorksUrl({
+        filter: `${activeFilter},publication_year:${currentYear - 1}-${currentYear}`,
+        sort: "cited_by_count:desc",
+        "per-page": "25",
+      })
+    ).catch(() => null),
+  ]);
 
   const seminalPapers = deduplicatePapers(
     (seminalData?.results || []).map(mapWorkToPaper)
@@ -375,21 +360,35 @@ export async function getFullConceptAnalysis(
   )[0];
   const domainPath = topTopic?.path || [];
 
-  const hotKeywords = (hotKwData?.group_by || [])
-    .map((g: any) => ({
-      name: String(g.key_display_name || "").trim(),
-      count: Number(g.count) || 0,
-    }))
-    .filter((k: { name: string; count: number }) => k.name.length > 0 && k.count > 0)
-    .slice(0, 12);
+  // Derive hot keywords & prolific authors locally from sampled works (saves 20 search credits!)
+  const kwCounts = new Map<string, number>();
+  for (const p of frontierPapers.length > 0 ? frontierPapers : seminalPapers) {
+    for (const kw of p.keywords || []) {
+      const cleanKw = kw.trim();
+      if (!cleanKw) continue;
+      kwCounts.set(cleanKw, (kwCounts.get(cleanKw) || 0) + 1);
+    }
+  }
+  const hotKeywords = Array.from(kwCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([name, count]) => ({ name, count }));
 
-  const prolificAuthors = (prolificData?.group_by || [])
-    .map((g: any) => ({
-      id: String(g.key || "").replace("https://openalex.org/", ""),
-      name: String(g.key_display_name || "").trim(),
-      count: Number(g.count) || 0,
-    }))
-    .filter((a: { id: string; name: string }) => a.id && a.name)
+  const authorFreq = new Map<string, { id: string; name: string; count: number }>();
+  for (const p of deduplicatePapers([
+    ...originPapers,
+    ...seminalPapers,
+    ...frontierPapers,
+  ])) {
+    for (const a of p.authors.slice(0, 8)) {
+      if (!a.id || !a.name) continue;
+      const prev = authorFreq.get(a.id);
+      if (prev) prev.count += 1;
+      else authorFreq.set(a.id, { id: a.id, name: a.name, count: 1 });
+    }
+  }
+  const prolificAuthors = Array.from(authorFreq.values())
+    .sort((a, b) => b.count - a.count)
     .slice(0, 15);
 
   const originY = snapshot.originYear ?? currentYear;

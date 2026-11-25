@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { JournalProfile, SelectedJournalItem } from "@/lib/types";
-import { searchJournals } from "@/lib/openalex";
+import { autocompleteJournals } from "@/lib/openalex";
 import {
   JOURNAL_PRESETS,
   getJournalBadgeStyle,
@@ -35,15 +35,15 @@ export default function JournalMultiSelect({
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await searchJournals(query.trim(), 1);
-        setSuggestions(res.results.slice(0, 8));
+        const results = await autocompleteJournals(query.trim());
+        setSuggestions(results.slice(0, 8));
         setOpen(true);
       } catch {
         setSuggestions([]);
       } finally {
         setSearching(false);
       }
-    }, 320);
+    }, 450);
 
     return () => clearTimeout(timer);
   }, [query]);

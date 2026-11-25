@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AuthorRelationshipNetwork,
@@ -73,34 +73,21 @@ export default function AuthorNetworkGraph({
     [network.collaborators, selectedId]
   );
 
-  // Auto-fetch complete OpenAlex co-authored history when selecting a collaborator
-  useEffect(() => {
-    if (!selectedCollab) return;
-    const key = selectedCollab.id;
-    if (coauthoredCache[key]) return;
-
-    let isMounted = true;
+  const handleLoadFullCoauthored = async (collabId: string) => {
+    if (coauthoredCache[collabId]) return;
     setLoadingPapers(true);
-    getCoauthoredPapers(network.centerId, selectedCollab.id, 15)
-      .then((res) => {
-        if (isMounted) {
-          setCoauthoredCache((prev) => ({
-            ...prev,
-            [key]: { papers: res.results, totalCount: res.totalCount },
-          }));
-        }
-      })
-      .catch(() => {
-        // Fallback to sampled papers seamlessly
-      })
-      .finally(() => {
-        if (isMounted) setLoadingPapers(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [network.centerId, selectedCollab, coauthoredCache]);
+    try {
+      const res = await getCoauthoredPapers(network.centerId, collabId, 15);
+      setCoauthoredCache((prev) => ({
+        ...prev,
+        [collabId]: { papers: res.results, totalCount: res.totalCount },
+      }));
+    } catch {
+      // Fallback to sampled papers seamlessly
+    } finally {
+      setLoadingPapers(false);
+    }
+  };
 
   const positions = useMemo(() => {
     const layoutNodes = [
@@ -409,6 +396,18 @@ export default function AuthorNetworkGraph({
               </div>
 
               <div className="flex flex-col gap-2 pt-1">
+                {!fullCollabData && (
+                  <button
+                    type="button"
+                    onClick={() => handleLoadFullCoauthored(selectedCollab.id)}
+                    disabled={loadingPapers}
+                    className="w-full py-2 px-3 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                  >
+                    {loadingPapers
+                      ? "Loading..."
+                      : "Load Complete Co-authored History"}
+                  </button>
+                )}
                 <Link
                   href={`/search?authorId=${network.centerId}&coauthorId=${selectedCollab.id}&sort=citations`}
                   className="w-full py-2 px-3 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"

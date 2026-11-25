@@ -333,7 +333,8 @@ interface MutableCollabAcc {
 export async function buildAuthorRelationshipNetwork(
   authorId: string,
   authorName: string,
-  works: Paper[]
+  works: Paper[],
+  options?: { includeLineage?: boolean }
 ): Promise<AuthorRelationshipNetwork> {
   const cleanCenterId = normalizeAuthorId(authorId);
   const currentYear = new Date().getFullYear();
@@ -481,7 +482,21 @@ export async function buildAuthorRelationshipNetwork(
     }
   }
 
-  // Intellectual Lineage (Influenced By via referenced_works & Influences via citing works)
+  // Intellectual Lineage: only fetch when explicitly requested (saves automatic background calls)
+  if (!options?.includeLineage) {
+    return {
+      centerId: cleanCenterId,
+      centerName: authorName,
+      collaborators,
+      peerEdges: Array.from(peerEdgeMap.values()).sort(
+        (a, b) => b.weight - a.weight
+      ),
+      sampledPapersCount: works.length,
+      influencedBy: [],
+      influences: [],
+    };
+  }
+
   const topCitedWorks = works
     .slice()
     .sort((a, b) => (b.citedByCount || 0) - (a.citedByCount || 0));

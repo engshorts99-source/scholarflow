@@ -7,6 +7,7 @@ import SearchBar from "@/components/SearchBar";
 import PaperCard from "@/components/PaperCard";
 import ConceptTimelineChart from "@/components/ConceptTimelineChart";
 import PeopleNetworkGraph from "@/components/PeopleNetworkGraph";
+import { RateLimitHelpBanner } from "@/components/ApiKeyControl";
 import { getFullConceptAnalysis } from "@/lib/conceptEngine";
 import { ConceptAnalysis, ResearchMaturityStage } from "@/lib/types";
 import {
@@ -214,18 +215,7 @@ export default function ClientConcept() {
         </div>
       )}
 
-      {!loading && error && (
-        <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-300 space-y-3">
-          <h2 className="text-lg font-semibold">Could not analyze &ldquo;{q}&rdquo;</h2>
-          <p className="text-sm">{error}</p>
-          <Link
-            href={`/search?q=${encodeURIComponent(q)}`}
-            className="inline-flex items-center gap-1.5 text-sm text-blue-300 hover:underline"
-          >
-            Try regular paper search instead →
-          </Link>
-        </div>
-      )}
+      {!loading && error && <RateLimitHelpBanner error={error} />}
 
       {!loading && !error && !analysis && (
         <div className="py-20 text-center space-y-4 bg-white/[0.02] border border-white/10 rounded-2xl p-8">

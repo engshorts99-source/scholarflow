@@ -10,11 +10,35 @@ import {
 
 export const OPENALEX_BASE_URL = "https://api.openalex.org";
 const MAILTO = "engshorts99@gmail.com";
-const CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
-const SESSION_CACHE_PREFIX = "schox_oa_";
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours persistent cache
+const STORAGE_CACHE_PREFIX = "schox_oa2_";
+export const API_KEY_STORAGE_KEY = "schox_openalex_api_key";
 
-const memoryCache = new Map<string, { ts: number; data: any }>();
-const inflightRequests = new Map<string, Promise<any>>();
+const memoryCache = new Map<string, { ts: number; data: unknown }>();
+const inflightRequests = new Map<string, Promise<unknown>>();
+
+export function getSavedOpenAlexApiKey(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (window.localStorage.getItem(API_KEY_STORAGE_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function setSavedOpenAlexApiKey(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const clean = key.trim();
+    if (clean) {
+      window.localStorage.setItem(API_KEY_STORAGE_KEY, clean);
+    } else {
+      window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export function sanitizeOpenAlexQuery(q: string): string {
   return q
@@ -70,10 +94,40 @@ function hashKey(str: string): string {
   for (let i = 0; i < str.length; i++) {
     hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
   }
-  return `${SESSION_CACHE_PREFIX}${(hash >>> 0).toString(36)}_${str.length}`;
+  return `${STORAGE_CACHE_PREFIX}${(hash >>> 0).toString(36)}_${str.length}`;
 }
 
-function readCached(url: string): any | undefined {
+export function hasCachedOpenAlexUrl(url: string): boolean {
+  return readCached(url) !== undefined;
+}
+
+function evictOldCacheEntries(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const entries: { key: string; ts: number }[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(STORAGE_CACHE_PREFIX)) {
+        try {
+          const raw = window.localStorage.getItem(k);
+          const parsed = raw ? JSON.parse(raw) : null;
+          entries.push({ key: k, ts: parsed?.ts || 0 });
+        } catch {
+          entries.push({ key: k, ts: 0 });
+        }
+      }
+    }
+    entries.sort((a, b) => a.ts - b.ts);
+    const removeCount = Math.max(10, Math.floor(entries.length / 2));
+    for (let i = 0; i < Math.min(removeCount, entries.length); i++) {
+      window.localStorage.removeItem(entries[i].key);
+    }
+  } catch {
+    // Ignore storage cleanup errors
+  }
+}
+
+function readCached(url: string): unknown {
   const now = Date.now();
   const mem = memoryCache.get(url);
   if (mem && now - mem.ts < CACHE_TTL_MS) {
@@ -85,7 +139,10 @@ function readCached(url: string): any | undefined {
 
   if (typeof window !== "undefined") {
     try {
-      const raw = window.sessionStorage.getItem(hashKey(url));
+      const storageKey = hashKey(url);
+      const raw =
+        window.localStorage.getItem(storageKey) ||
+        window.sessionStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.url === url && now - parsed.ts < CACHE_TTL_MS) {
@@ -94,33 +151,59 @@ function readCached(url: string): any | undefined {
         }
       }
     } catch {
-      // Ignore storage errors (private browsing / disabled storage)
+      // Ignore storage errors
     }
   }
   return undefined;
 }
 
-function writeCached(url: string, data: any): void {
+function writeCached(url: string, data: unknown): void {
   const entry = { ts: Date.now(), data };
   memoryCache.set(url, entry);
 
-  if (memoryCache.size > 200) {
+  if (memoryCache.size > 300) {
     const oldestKey = memoryCache.keys().next().value;
     if (oldestKey) memoryCache.delete(oldestKey);
   }
 
   if (typeof window !== "undefined") {
-    try {
-      const payload = JSON.stringify({ url, ts: entry.ts, data });
-      if (payload.length < 180_000) {
-        window.sessionStorage.setItem(hashKey(url), payload);
+    const storageKey = hashKey(url);
+    const payload = JSON.stringify({ url, ts: entry.ts, data });
+    if (payload.length < 220_000) {
+      try {
+        window.localStorage.setItem(storageKey, payload);
+      } catch {
+        evictOldCacheEntries();
+        try {
+          window.localStorage.setItem(storageKey, payload);
+        } catch {
+          // Fallback to sessionStorage if localStorage still full
+          try {
+            window.sessionStorage.setItem(storageKey, payload);
+          } catch {
+            // Ignore
+          }
+        }
       }
-    } catch {
-      // Ignore QuotaExceededError gracefully
     }
   }
 }
 
+function attachApiKeyIfSaved(rawUrl: string): string {
+  const apiKey = getSavedOpenAlexApiKey();
+  if (!apiKey) return rawUrl;
+  try {
+    const parsed = new URL(rawUrl);
+    if (!parsed.searchParams.has("api_key")) {
+      parsed.searchParams.set("api_key", apiKey);
+    }
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+// eslint-disable-next-line
 export async function fetchOpenAlexJson<T = any>(
   url: string,
   options?: { allow404?: boolean }
@@ -136,32 +219,31 @@ export async function fetchOpenAlexJson<T = any>(
   }
 
   const requestPromise = (async (): Promise<T | null> => {
-    // Only set User-Agent on server/edge; browsers forbid User-Agent and it triggers CORS preflight.
     const headers: Record<string, string> = {};
     if (typeof window === "undefined") {
       headers["User-Agent"] = `Schox/1.0 (mailto:${MAILTO})`;
     }
 
-    let lastStatus = 0;
-    let lastStatusText = "";
+    const requestUrl = attachApiKeyIfSaved(url);
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await fetch(url, { cache: "no-store", headers });
-      lastStatus = res.status;
-      lastStatusText = res.statusText;
+    // Do NOT aggressively retry 429s in a tight loop when daily IP budget is exhausted;
+    // at most 1 gentle retry after 1.2s if transient per-second burst.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(requestUrl, { cache: "no-store", headers });
 
       if (res.status === 404 && options?.allow404) {
         return null;
       }
 
       if (res.status === 429) {
-        if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
-          continue;
+        const remaining = res.headers.get("x-ratelimit-remaining");
+        if (remaining === "0" || attempt === 1) {
+          throw new Error(
+            "RATE_LIMIT_429: OpenAlex free daily IP quota ($0.10/day) is temporarily exhausted. Add a free OpenAlex API key ($1/day = 10x quota) in the top bar or wait for daily reset."
+          );
         }
-        throw new Error(
-          "OpenAlex free daily query limit reached for your IP. Please try again later."
-        );
+        await new Promise((r) => setTimeout(r, 1200));
+        continue;
       }
 
       if (!res.ok) {
@@ -175,9 +257,7 @@ export async function fetchOpenAlexJson<T = any>(
       return data as T;
     }
 
-    throw new Error(
-      `OpenAlex API error (${lastStatus}): ${lastStatusText || "Request failed"}`
-    );
+    throw new Error("RATE_LIMIT_429: OpenAlex rate limit reached.");
   })();
 
   inflightRequests.set(url, requestPromise);
@@ -188,7 +268,6 @@ export async function fetchOpenAlexJson<T = any>(
   }
 }
 
-// Helper to convert inverted index to string
 function reconstructAbstract(
   invertedIndex: Record<string, number[]> | null
 ): string | null {
@@ -209,35 +288,38 @@ function reconstructAbstract(
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
-function parsePosition(pos: any): "first" | "middle" | "last" | undefined {
+function parsePosition(pos: unknown): "first" | "middle" | "last" | undefined {
   if (pos === "first" || pos === "middle" || pos === "last") return pos;
   return undefined;
 }
 
-// Map OpenAlex work to our Paper type
+// eslint-disable-next-line
 export function mapWorkToPaper(work: any): Paper {
   const rawConcepts = (work.concepts || [])
     .slice()
+    // eslint-disable-next-line
     .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
     .slice(0, 8)
+    // eslint-disable-next-line
     .map((c: any) => ({
       id: c.id?.replace("https://openalex.org/", "") || "",
       displayName: c.display_name || "",
       level: c.level ?? 1,
     }))
-    .filter((c: any) => c.displayName);
+    .filter((c: { displayName: string }) => c.displayName);
 
   const fallbackConcepts =
     rawConcepts.length > 0
       ? rawConcepts
       : (work.topics || [])
           .slice(0, 8)
+          // eslint-disable-next-line
           .map((t: any) => ({
             id: t.id?.replace("https://openalex.org/", "") || "",
             displayName: t.display_name || "",
             level: 1,
           }))
-          .filter((c: any) => c.displayName);
+          .filter((c: { displayName: string }) => c.displayName);
 
   return {
     id: work.id?.replace("https://openalex.org/", "") || "",
@@ -246,6 +328,7 @@ export function mapWorkToPaper(work: any): Paper {
     publicationDate: work.publication_date || "",
     publicationYear: work.publication_year || 0,
     type: work.type || undefined,
+    // eslint-disable-next-line
     authors: (work.authorships || []).map((a: any) => ({
       id: a.author?.id?.replace("https://openalex.org/", "") || "",
       name: a.author?.display_name || "Unknown Author",
@@ -257,11 +340,11 @@ export function mapWorkToPaper(work: any): Paper {
       position: parsePosition(a.author_position),
       isCorresponding: Boolean(a.is_corresponding),
     })),
-    correspondingAuthorIds: (work.corresponding_author_ids || []).map(
-      (cid: string) => cid?.replace("https://openalex.org/", "") || ""
-    ).filter(Boolean),
+    correspondingAuthorIds: (work.corresponding_author_ids || [])
+      .map((cid: string) => cid?.replace("https://openalex.org/", "") || "")
+      .filter(Boolean),
     abstract: reconstructAbstract(work.abstract_inverted_index),
-    tldr: null, // Enriched by Semantic Scholar when available
+    tldr: null,
     citedByCount: work.cited_by_count || 0,
     isOpenAccess: work.open_access?.is_oa || false,
     pdfUrl: work.open_access?.oa_url || null,
@@ -288,9 +371,11 @@ export function mapWorkToPaper(work: any): Paper {
         }
       : null,
     keywords: (work.keywords || [])
+      // eslint-disable-next-line
       .map((k: any) => k.display_name)
       .filter(Boolean),
     countsByYear: (work.counts_by_year || [])
+      // eslint-disable-next-line
       .map((c: any) => ({
         year: c.year,
         citedByCount: c.cited_by_count || 0,
@@ -320,7 +405,6 @@ export function buildArticleCategoryFilters(
       ? ["type:article|letter", "referenced_works_count:>5"]
       : ["type:article|letter|conference-paper|preprint"];
   }
-  // Default "both": Research (incl. letters) + Reviews
   return hasJournalFilter
     ? ["type:article|letter|review", "referenced_works_count:>5"]
     : ["type:article|letter|conference-paper|preprint|review"];
@@ -416,9 +500,7 @@ export async function searchPapers(params: SearchParams): Promise<SearchResult> 
 
 export async function getPaperById(id: string): Promise<Paper | null> {
   const isDoi = id.startsWith("10.");
-  const endpoint = isDoi
-    ? `https://doi.org/${id}`
-    : normalizeWorkId(id);
+  const endpoint = isDoi ? `https://doi.org/${id}` : normalizeWorkId(id);
   const url = `${OPENALEX_BASE_URL}/works/${endpoint}?mailto=${MAILTO}`;
 
   const data = await fetchOpenAlexJson(url, { allow404: true });
@@ -474,6 +556,7 @@ export async function getCoauthoredPapers(
   };
 }
 
+// Single 1-credit call instead of 2 calls!
 export async function getAuthorWorksForNetwork(
   authorId: string
 ): Promise<Paper[]> {
@@ -495,39 +578,18 @@ export async function getAuthorWorksForNetwork(
     "referenced_works_count",
   ].join(",");
 
-  const topUrl = new URL(`${OPENALEX_BASE_URL}/works`);
-  topUrl.searchParams.append("filter", `authorships.author.id:${cleanId}`);
-  topUrl.searchParams.append("sort", "cited_by_count:desc");
-  topUrl.searchParams.append("per-page", "35");
-  topUrl.searchParams.append("select", selectFields);
-  topUrl.searchParams.append("mailto", MAILTO);
+  const url = new URL(`${OPENALEX_BASE_URL}/works`);
+  url.searchParams.append("filter", `authorships.author.id:${cleanId}`);
+  url.searchParams.append("sort", "cited_by_count:desc");
+  url.searchParams.append("per-page", "50");
+  url.searchParams.append("select", selectFields);
+  url.searchParams.append("mailto", MAILTO);
 
-  const recentUrl = new URL(`${OPENALEX_BASE_URL}/works`);
-  recentUrl.searchParams.append("filter", `authorships.author.id:${cleanId}`);
-  recentUrl.searchParams.append("sort", "publication_date:desc");
-  recentUrl.searchParams.append("per-page", "25");
-  recentUrl.searchParams.append("select", selectFields);
-  recentUrl.searchParams.append("mailto", MAILTO);
-
-  const [topData, recentData] = await Promise.all([
-    fetchOpenAlexJson(topUrl.toString()).catch(() => null),
-    fetchOpenAlexJson(recentUrl.toString()).catch(() => null),
-  ]);
-
-  const byId = new Map<string, Paper>();
-  for (const raw of [
-    ...(topData?.results || []),
-    ...(recentData?.results || []),
-  ]) {
-    const paper = mapWorkToPaper(raw);
-    if (paper.id && !byId.has(paper.id)) {
-      byId.set(paper.id, paper);
-    }
-  }
-
-  return Array.from(byId.values());
+  const data = await fetchOpenAlexJson(url.toString()).catch(() => null);
+  return (data?.results || []).map(mapWorkToPaper);
 }
 
+// eslint-disable-next-line
 function mapInstitution(inst: any): AuthorInstitution {
   return {
     id: inst.id?.replace("https://openalex.org/", "") || "",
@@ -537,6 +599,7 @@ function mapInstitution(inst: any): AuthorInstitution {
   };
 }
 
+// eslint-disable-next-line
 function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
   const rawInstitutions = Array.isArray(data.last_known_institutions)
     ? data.last_known_institutions
@@ -545,11 +608,14 @@ function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
     : [];
 
   const lastKnownInstitutions: AuthorInstitution[] = rawInstitutions
+    // eslint-disable-next-line
     .filter((i: any) => i && i.display_name)
     .map(mapInstitution);
 
   const affiliations = (data.affiliations || [])
+    // eslint-disable-next-line
     .filter((aff: any) => aff?.institution?.display_name)
+    // eslint-disable-next-line
     .map((aff: any) => ({
       institution: mapInstitution(aff.institution),
       years: Array.isArray(aff.years)
@@ -561,6 +627,7 @@ function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
         (b.years[0] || 0) - (a.years[0] || 0)
     );
 
+  // eslint-disable-next-line
   const topics = (data.topics || []).slice(0, 10).map((t: any) => ({
     id: t.id?.replace("https://openalex.org/", "") || "",
     displayName: t.display_name || "",
@@ -572,12 +639,13 @@ function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
   const rawXConcepts = data.x_concepts || [];
   const concepts =
     rawXConcepts.length > 0
-      ? rawXConcepts.slice(0, 8).map((c: any) => ({
+      ? // eslint-disable-next-line
+        rawXConcepts.slice(0, 8).map((c: any) => ({
           id: c.id?.replace("https://openalex.org/", "") || "",
           displayName: c.display_name || "",
           score: c.score || 0,
         }))
-      : topics.slice(0, 8).map((t: any) => ({
+      : topics.slice(0, 8).map((t: { id: string; displayName: string; count: number }) => ({
           id: t.id,
           displayName: t.displayName,
           score: t.count || 0,
@@ -598,6 +666,7 @@ function mapOpenAlexAuthorToProfile(data: any): AuthorProfile {
     affiliations,
     topics,
     concepts,
+    // eslint-disable-next-line
     countsByYear: (data.counts_by_year || []).map((c: any) => ({
       year: c.year,
       worksCount: c.works_count || 0,
@@ -655,6 +724,40 @@ export async function getJournalById(
   };
 }
 
+// Zero-credit (0 USD) journal autocomplete endpoint!
+export async function autocompleteJournals(
+  query: string
+): Promise<JournalProfile[]> {
+  const clean = query.trim();
+  if (clean.length < 2) return [];
+  const url = new URL(`${OPENALEX_BASE_URL}/autocomplete/sources`);
+  url.searchParams.append("q", clean);
+  url.searchParams.append("mailto", MAILTO);
+
+  const data = await fetchOpenAlexJson(url.toString());
+  const rows: Array<{
+    id?: string;
+    display_name?: string;
+    hint?: string;
+    works_count?: number;
+    cited_by_count?: number;
+  }> = data?.results || [];
+
+  return rows
+    .filter((r) => r.id && r.display_name)
+    .map((r) => ({
+      id: (r.id || "").replace("https://openalex.org/", ""),
+      displayName: r.display_name || "",
+      issn: [],
+      issnL: null,
+      publisher: r.hint || null,
+      worksCount: r.works_count || 0,
+      citedByCount: r.cited_by_count || 0,
+      homepageUrl: null,
+      type: "journal",
+    }));
+}
+
 export async function searchJournals(
   query: string,
   page: number = 1
@@ -670,6 +773,7 @@ export async function searchJournals(
 
   return {
     results: (data?.results || []).map(
+      // eslint-disable-next-line
       (d: any): JournalProfile => ({
         id: d.id?.replace("https://openalex.org/", "") || "",
         displayName: d.display_name || "",

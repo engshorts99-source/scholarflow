@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { searchJournals } from '@/lib/openalex';
+import { autocompleteJournals } from '@/lib/openalex';
 import { ArticleCategory, JournalProfile } from '@/lib/types';
 import { JOURNAL_PRESETS, resolveJournalName } from '@/lib/journalPresets';
 import { X, Search, Award } from 'lucide-react';
@@ -75,15 +75,15 @@ export default function FilterPanel() {
     const timer = setTimeout(async () => {
       setSearchingJournals(true);
       try {
-        const result = await searchJournals(journalQuery, 1);
-        setJournalSuggestions(result.results.slice(0, 6));
+        const results = await autocompleteJournals(journalQuery);
+        setJournalSuggestions(results.slice(0, 6));
         setShowSuggestions(true);
       } catch (e) {
         console.error(e);
       } finally {
         setSearchingJournals(false);
       }
-    }, 350);
+    }, 450);
 
     return () => clearTimeout(timer);
   }, [journalQuery]);
@@ -216,10 +216,7 @@ export default function FilterPanel() {
             <button
               key={opt.value}
               type="button"
-              onClick={() => {
-                setArticleType(opt.value);
-                applyFilters(opt.value);
-              }}
+              onClick={() => setArticleType(opt.value)}
               className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                 articleType === opt.value
                   ? 'bg-blue-600/25 border-blue-500/50 text-white'

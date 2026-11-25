@@ -1,10 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from 'react';
-import {
-  getAuthorById,
-  getAuthorWorksForNetwork,
-  searchPapers,
-} from '@/lib/openalex';
+import { getAuthorById, deduplicatePapers, searchPapers } from '@/lib/openalex';
 import { buildAuthorRelationshipNetwork } from '@/lib/relationshipEngine';
 import {
   AuthorProfile,
@@ -14,6 +10,7 @@ import {
 import AdUnit from '@/components/AdUnit';
 import PaperCard from '@/components/PaperCard';
 import AuthorNetworkGraph from '@/components/AuthorNetworkGraph';
+import { RateLimitHelpBanner } from '@/components/ApiKeyControl';
 import {
   Building,
   Quote,
@@ -35,6 +32,9 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
   const [topPapers, setTopPapers] = useState<Paper[]>([]);
   const [network, setNetwork] = useState<AuthorRelationshipNetwork | null>(null);
   const [networkLoading, setNetworkLoading] = useState(true);
+  const [lineageLoaded, setLineageLoaded] = useState(false);
+  const [lineageLoading, setLineageLoading] = useState(false);
+  const [seedWorksState, setSeedWorksState] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredYear, setHoveredYear] = useState<{
@@ -62,10 +62,9 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
 
         setAuthor(authorData);
 
-        const [latest, top, networkWorks] = await Promise.all([
+        const [latest, top] = await Promise.all([
           searchPapers({ authorId: authorData.id, sort: 'date', page: 1 }),
           searchPapers({ authorId: authorData.id, sort: 'citations', page: 1 }),
-          getAuthorWorksForNetwork(authorData.id).catch(() => []),
         ]);
 
         if (!isMounted) return;
@@ -74,15 +73,18 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
         setTopPapers(top.results || []);
         setLoading(false);
 
-        const combinedSeedWorks =
-          networkWorks.length > 0
-            ? networkWorks
-            : [...(top.results || []), ...(latest.results || [])];
+        const combinedSeedWorks = deduplicatePapers([
+          ...(top.results || []),
+          ...(latest.results || []),
+        ]);
+        setSeedWorksState(combinedSeedWorks);
+        setLineageLoaded(false);
 
         buildAuthorRelationshipNetwork(
           authorData.id,
           authorData.displayName,
-          combinedSeedWorks
+          combinedSeedWorks,
+          { includeLineage: false }
         )
           .then((net) => {
             if (isMounted) setNetwork(net);
@@ -127,15 +129,40 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
 
   if (error || !author) {
     return (
-      <div className="container mx-auto px-4 py-20 text-center text-gray-400">
-        <h1 className="text-2xl font-bold text-white mb-2">Author Not Found</h1>
-        <p>{error || "The author you're looking for doesn't exist or has been removed."}</p>
-        <Link href="/search" className="inline-block mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500">
-          Return to Search
-        </Link>
+      <div className="container mx-auto px-4 py-16 max-w-2xl space-y-6">
+        {error ? (
+          <RateLimitHelpBanner error={error} />
+        ) : (
+          <div className="text-center text-gray-400">
+            <h1 className="text-2xl font-bold text-white mb-2">Author Not Found</h1>
+            <p>The author you&apos;re looking for doesn&apos;t exist or has been removed.</p>
+          </div>
+        )}
+        <div className="text-center">
+          <Link href="/search" className="inline-block px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500">
+            Return to Search
+          </Link>
+        </div>
       </div>
     );
   }
+
+  const handleLoadLineage = async () => {
+    if (!author || lineageLoading) return;
+    setLineageLoading(true);
+    try {
+      const fullNet = await buildAuthorRelationshipNetwork(
+        author.id,
+        author.displayName,
+        seedWorksState,
+        { includeLineage: true }
+      );
+      setNetwork(fullNet);
+      setLineageLoaded(true);
+    } finally {
+      setLineageLoading(false);
+    }
+  };
 
   const institutions =
     author.lastKnownInstitutions && author.lastKnownInstitutions.length > 0
@@ -310,8 +337,31 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
         ) : null}
       </section>
 
-      {/* Intellectual Lineage: Influenced By <-> Influences */}
+      {/* Intellectual Lineage: On-Demand Trigger or Loaded Columns */}
+      {network && !lineageLoaded && (
+        <section className="rounded-2xl bg-white/[0.02] border border-white/10 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-base font-semibold text-white font-space flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-emerald-400" />
+              Intellectual Citation Lineage (Influenced By &amp; Extended By)
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Load outgoing foundational influences and incoming researchers extending {author.displayName}&apos;s work on demand.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLoadLineage}
+            disabled={lineageLoading}
+            className="px-4 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/35 text-emerald-300 text-xs font-semibold shrink-0 disabled:opacity-50"
+          >
+            {lineageLoading ? "Loading Lineage..." : "Load Citation Lineage"}
+          </button>
+        </section>
+      )}
+
       {network &&
+        lineageLoaded &&
         (network.influencedBy.length > 0 || network.influences.length > 0) && (
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Influenced By */}

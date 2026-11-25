@@ -53,7 +53,7 @@ export default function SearchBar({
     const q = encodeURIComponent(query.trim());
 
     if (searchType === "venues") {
-      router.push(`/venues?q=${q}`);
+      router.push(`/venues?q=${q}&run=1`);
     } else if (searchType === "concept") {
       router.push(`/concept?q=${q}`);
     } else if (searchType === "authors") {

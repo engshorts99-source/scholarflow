@@ -8,6 +8,7 @@ import AuthorCard from '@/components/AuthorCard';
 import JournalCard from '@/components/JournalCard';
 import AdUnit from '@/components/AdUnit';
 import ConceptSnapshotBanner from '@/components/ConceptSnapshotBanner';
+import { RateLimitHelpBanner } from '@/components/ApiKeyControl';
 import { searchPapers, searchAuthors, searchJournals } from '@/lib/openalex';
 import { getBatchTldrs } from '@/lib/semanticScholar';
 import { SearchParams, Paper, AuthorProfile, JournalProfile, ArticleCategory } from '@/lib/types';
@@ -376,11 +377,7 @@ export default function ClientSearch() {
             )}
           </div>
 
-          {error && (
-            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400">
-              {error}
-            </div>
-          )}
+          {error && <RateLimitHelpBanner error={error} />}
 
           {loading && !error && (
             <div className="py-20 flex justify-center">
