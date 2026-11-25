@@ -10,10 +10,11 @@ import AdUnit from '@/components/AdUnit';
 import ConceptSnapshotBanner from '@/components/ConceptSnapshotBanner';
 import { searchPapers, searchAuthors, searchJournals } from '@/lib/openalex';
 import { getBatchTldrs } from '@/lib/semanticScholar';
-import { SearchParams, Paper, AuthorProfile, JournalProfile } from '@/lib/types';
+import { SearchParams, Paper, AuthorProfile, JournalProfile, ArticleCategory } from '@/lib/types';
+import { resolveJournalName } from '@/lib/journalPresets';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { FileText, User, BookOpen, Filter, X } from 'lucide-react';
+import { FileText, User, BookOpen, Filter, X, Award } from 'lucide-react';
 
 type SearchType = 'papers' | 'authors' | 'journals' | 'all';
 
@@ -27,6 +28,11 @@ export default function ClientSearch() {
   const yearTo = searchParams.get('yearTo') || undefined;
   const oaOnly = searchParams.get('oaOnly') === 'true';
   const journalId = searchParams.get('journalId') || undefined;
+  const rawArticleType = searchParams.get('articleType');
+  const articleType: ArticleCategory | undefined =
+    rawArticleType === 'research' || rawArticleType === 'review' || rawArticleType === 'both'
+      ? rawArticleType
+      : undefined;
   const authorId = searchParams.get('authorId') || undefined;
   const coauthorId = searchParams.get('coauthorId') || undefined;
   const citesId = searchParams.get('citesId') || undefined;
@@ -93,6 +99,7 @@ export default function ClientSearch() {
               yearTo,
               oaOnly,
               journalId,
+              articleType,
               authorId,
               coauthorId,
               citesId,
@@ -136,6 +143,7 @@ export default function ClientSearch() {
             yearTo,
             oaOnly,
             journalId,
+            articleType,
             authorId,
             coauthorId,
             citesId,
@@ -173,6 +181,7 @@ export default function ClientSearch() {
     yearTo,
     oaOnly,
     journalId,
+    articleType,
     authorId,
     coauthorId,
     citesId,
@@ -197,6 +206,7 @@ export default function ClientSearch() {
     if (yearTo) p.set('yearTo', yearTo);
     if (oaOnly) p.set('oaOnly', 'true');
     if (journalId) p.set('journalId', journalId);
+    if (articleType && articleType !== 'both') p.set('articleType', articleType);
     if (authorId) p.set('authorId', authorId);
     if (coauthorId) p.set('coauthorId', coauthorId);
     if (citesId) p.set('citesId', citesId);
@@ -269,11 +279,48 @@ export default function ClientSearch() {
 
         <div className="flex-1 min-w-0">
           {/* Active entity filter pills */}
-          {(authorId || coauthorId || citesId) && (
+          {(authorId || coauthorId || citesId || journalId || articleType) && (
             <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
               <span className="text-gray-400 flex items-center gap-1">
-                <Filter className="w-3.5 h-3.5" /> Active graph filter:
+                <Filter className="w-3.5 h-3.5" /> Active filter:
               </span>
+              {articleType && articleType !== 'both' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200">
+                  <span>
+                    {articleType === 'research'
+                      ? 'Research Articles (incl. Letters)'
+                      : 'Review Articles Only'}
+                  </span>
+                  <Link href={buildClearEntityFilterHref(['articleType'])}>
+                    <X className="w-3 h-3 hover:text-white" />
+                  </Link>
+                </span>
+              )}
+              {journalId && (
+                <>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-200">
+                    <span>
+                      Journals:{' '}
+                      {journalId
+                        .split(',')
+                        .map((id) => resolveJournalName(id.trim()))
+                        .join(', ')}
+                    </span>
+                    <Link href={buildClearEntityFilterHref(['journalId'])}>
+                      <X className="w-3 h-3 hover:text-white" />
+                    </Link>
+                  </span>
+                  <Link
+                    href={`/venues?journals=${encodeURIComponent(journalId)}${
+                      articleType ? `&articleType=${articleType}` : ''
+                    }${q ? `&q=${encodeURIComponent(q)}` : ''}`}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/35 text-blue-300 font-medium transition-colors"
+                  >
+                    <Award className="w-3 h-3" />
+                    Analyze Streak Labs &amp; Topics →
+                  </Link>
+                </>
+              )}
               {authorId && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-mint-500/15 border border-mint-500/30 text-mint-300">
                   <Link href={`/author/${authorId}`} className="hover:underline">

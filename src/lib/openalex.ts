@@ -5,6 +5,7 @@ import {
   AuthorProfile,
   AuthorInstitution,
   JournalProfile,
+  ArticleCategory,
 } from "./types";
 
 export const OPENALEX_BASE_URL = "https://api.openalex.org";
@@ -256,6 +257,9 @@ export function mapWorkToPaper(work: any): Paper {
       position: parsePosition(a.author_position),
       isCorresponding: Boolean(a.is_corresponding),
     })),
+    correspondingAuthorIds: (work.corresponding_author_ids || []).map(
+      (cid: string) => cid?.replace("https://openalex.org/", "") || ""
+    ).filter(Boolean),
     abstract: reconstructAbstract(work.abstract_inverted_index),
     tldr: null, // Enriched by Semantic Scholar when available
     citedByCount: work.cited_by_count || 0,
@@ -304,16 +308,38 @@ export function mapWorkToPaper(work: any): Paper {
   };
 }
 
+export function buildArticleCategoryFilters(
+  articleType: ArticleCategory | undefined,
+  hasJournalFilter: boolean
+): string[] {
+  if (articleType === "review") {
+    return ["type:review"];
+  }
+  if (articleType === "research") {
+    return hasJournalFilter
+      ? ["type:article|letter", "referenced_works_count:>5"]
+      : ["type:article|letter|conference-paper|preprint"];
+  }
+  // Default "both": Research (incl. letters) + Reviews
+  return hasJournalFilter
+    ? ["type:article|letter|review", "referenced_works_count:>5"]
+    : ["type:article|letter|conference-paper|preprint|review"];
+}
+
 export async function searchPapers(params: SearchParams): Promise<SearchResult> {
   const url = new URL(`${OPENALEX_BASE_URL}/works`);
 
-  const filters: string[] = [
-    "type:article|conference-paper|preprint|review",
-  ];
+  const hasJournal = Boolean(
+    params.journalId && params.journalId.trim().length > 0
+  );
+  const filters: string[] = buildArticleCategoryFilters(
+    params.articleType,
+    hasJournal
+  );
 
   const cleanQ = params.q ? sanitizeOpenAlexQuery(params.q) : "";
   if (cleanQ) {
-    filters.push(`default.search:${encodeURIComponent(cleanQ)}`);
+    filters.push(`default.search:${cleanQ}`);
   }
 
   if (params.journalId) {

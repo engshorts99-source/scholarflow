@@ -2,9 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, User, FileText, BookOpen, Layers, Compass } from 'lucide-react';
+import {
+  Search,
+  User,
+  FileText,
+  BookOpen,
+  Layers,
+  Compass,
+  Award,
+} from 'lucide-react';
 
-export type SearchType = "papers" | "authors" | "journals" | "concept" | "all";
+export type SearchType =
+  | "papers"
+  | "authors"
+  | "journals"
+  | "concept"
+  | "venues"
+  | "all";
 
 export default function SearchBar({
   initialQuery = "",
@@ -29,11 +43,18 @@ export default function SearchBar({
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    if (!query.trim()) {
+      if (searchType === "venues") {
+        router.push(`/venues`);
+      }
+      return;
+    }
 
     const q = encodeURIComponent(query.trim());
 
-    if (searchType === "concept") {
+    if (searchType === "venues") {
+      router.push(`/venues?q=${q}`);
+    } else if (searchType === "concept") {
       router.push(`/concept?q=${q}`);
     } else if (searchType === "authors") {
       router.push(`/search?type=author&q=${q}`);
@@ -58,7 +79,8 @@ export default function SearchBar({
       type: "all",
       label: "All",
       icon: <Layers className="w-4 h-4" />,
-      activeColor: "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm",
+      activeColor:
+        "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm",
     },
     {
       type: "papers",
@@ -67,10 +89,18 @@ export default function SearchBar({
       activeColor: "bg-blue-600 text-white shadow-sm",
     },
     {
+      type: "venues",
+      label: "Lab Radar",
+      icon: <Award className="w-4 h-4" />,
+      activeColor:
+        "bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-sm",
+    },
+    {
       type: "concept",
       label: "Concepts",
       icon: <Compass className="w-4 h-4" />,
-      activeColor: "bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-sm",
+      activeColor:
+        "bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-sm",
     },
     {
       type: "authors",
@@ -89,15 +119,22 @@ export default function SearchBar({
   const placeholders: Record<SearchType, string> = {
     all: "Search papers, people, concepts, and journals...",
     papers: "Search 250M+ papers by title, DOI, or concept...",
-    concept: "Enter a concept (e.g., CRISPR, Graph Neural Network, Autophagy)...",
+    venues:
+      "Search a topic across CNS / elite journals (e.g., T cell exhaustion, CRISPR)...",
+    concept:
+      "Enter a concept (e.g., CRISPR, Graph Neural Network, Autophagy)...",
     authors: "Search researchers, PIs, and collaboration networks...",
-    journals: "Search journals by name (e.g., Nature, Science, Cell)...",
+    journals:
+      "Search journals by name (e.g., Nature Immunology, Science Immunology, Cell)...",
   };
 
   const buttonColors: Record<SearchType, string> = {
     all: "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500",
     papers: "bg-blue-600 hover:bg-blue-500",
-    concept: "bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500",
+    venues:
+      "bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500",
+    concept:
+      "bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500",
     authors: "bg-mint-600 hover:bg-mint-500",
     journals: "bg-purple-600 hover:bg-purple-500",
   };
@@ -125,7 +162,9 @@ export default function SearchBar({
 
       <form
         onSubmit={handleSearch}
-        className={`relative flex items-center w-full ${isLarge ? "h-16" : "h-12"}`}
+        className={`relative flex items-center w-full ${
+          isLarge ? "h-16" : "h-12"
+        }`}
       >
         <Search
           className={`absolute left-4 text-gray-400 ${
@@ -138,7 +177,9 @@ export default function SearchBar({
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholders[searchType]}
           className={`w-full bg-white/[0.03] border border-white/10 rounded-full text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all ${
-            isLarge ? "pl-14 pr-32 text-lg h-full" : "pl-12 pr-24 text-base h-full"
+            isLarge
+              ? "pl-14 pr-32 text-lg h-full"
+              : "pl-12 pr-24 text-base h-full"
           }`}
         />
         <button

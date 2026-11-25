@@ -10,13 +10,32 @@ export default function PaperCard({ paper }: { paper: Paper }) {
   else if (paper.citedByCount >= 10) badgeColor = "bg-green-500/10 text-green-400 border-green-500/20";
 
   const topicLabel = paper.primaryTopic?.displayName || paper.concepts?.[0]?.displayName;
-  const formattedType =
-    paper.type === "preprint"
-      ? "Preprint"
-      : paper.type === "review"
-      ? "Review"
+  const typeMeta =
+    paper.type === "review"
+      ? {
+          label: "Review",
+          cls: "bg-purple-500/15 border-purple-500/30 text-purple-300",
+        }
+      : paper.type === "letter"
+      ? {
+          label: "Letter",
+          cls: "bg-cyan-500/15 border-cyan-500/30 text-cyan-300",
+        }
+      : paper.type === "preprint"
+      ? {
+          label: "Preprint",
+          cls: "bg-white/5 border-white/10 text-gray-300",
+        }
       : paper.type === "conference-paper"
-      ? "Conference"
+      ? {
+          label: "Conference",
+          cls: "bg-white/5 border-white/10 text-gray-300",
+        }
+      : paper.type === "article"
+      ? {
+          label: "Research Article",
+          cls: "bg-white/[0.04] border-white/10 text-gray-400",
+        }
       : null;
 
   let formattedDate: string | number = paper.publicationYear;
@@ -90,9 +109,11 @@ export default function PaperCard({ paper }: { paper: Paper }) {
               {paper.citedByCount.toLocaleString()} Citations
             </div>
 
-            {formattedType && (
-              <span className="rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-xs text-gray-300">
-                {formattedType}
+            {typeMeta && (
+              <span
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium ${typeMeta.cls}`}
+              >
+                {typeMeta.label}
               </span>
             )}
 

@@ -1,3 +1,5 @@
+export type ArticleCategory = "research" | "review" | "both";
+
 export interface Paper {
   id: string; // OpenAlex ID
   doi: string | null;
@@ -6,6 +8,7 @@ export interface Paper {
   publicationYear: number;
   type?: string;
   authors: Author[];
+  correspondingAuthorIds?: string[];
   abstract: string | null;
   tldr: string | null; // Semantic Scholar
   citedByCount: number;
@@ -56,6 +59,12 @@ export interface JournalProfile {
   type: string | null;
 }
 
+export interface SelectedJournalItem {
+  id: string;
+  name: string;
+  shortName?: string;
+}
+
 export interface Concept {
   id: string;
   displayName: string;
@@ -67,6 +76,7 @@ export interface SearchParams {
   page?: number;
   sort?: "relevance" | "citations" | "date" | "oldest";
   journalId?: string;
+  articleType?: ArticleCategory;
   yearFrom?: string;
   yearTo?: string;
   oaOnly?: boolean;
@@ -253,4 +263,95 @@ export interface AuthorRelationshipNetwork {
   sampledPapersCount: number;
   influencedBy: LineagePerson[];
   influences: LineagePerson[];
+}
+
+// === Elite Venue / Multi-Journal Lab & Topic Radar Types ===
+
+export interface VenueResearchTeam {
+  id: string; // PI / Lead Researcher OpenAlex ID
+  name: string;
+  institution?: string;
+  countryCode?: string;
+  totalVenuePapers: number;
+  sampledPaperCount: number;
+  piLeadCount: number;
+  totalCitations: number;
+  streakYears: number; // Longest consecutive-year streak inside window
+  activeYears: number[]; // Sorted years active inside window
+  journalBreakdown: {
+    journalId: string;
+    journalName: string;
+    count: number;
+  }[];
+  keyMembers: {
+    id: string;
+    name: string;
+    count: number;
+  }[];
+  topTopics: string[];
+  topKeywords: string[];
+  papers: Paper[];
+}
+
+export interface VenueTeamEdge {
+  source: string;
+  target: string;
+  kind: "coauthorship" | "thematic";
+  weight: number;
+  sharedPapers: {
+    id: string;
+    title: string;
+    year: number;
+    journalName?: string;
+    citedByCount: number;
+  }[];
+  sharedTopics: string[];
+}
+
+export interface VenueTopicCluster {
+  id: string;
+  name: string;
+  field?: string;
+  subfield?: string;
+  count: number;
+  sharePct: number;
+  topKeywords: string[];
+  leadingTeamIds: string[];
+}
+
+export interface VenueTopicSynergyEdge {
+  source: string; // topic id
+  target: string; // topic id
+  weight: number;
+  sharedTeamNames: string[];
+}
+
+export interface VenueTeamTopicLink {
+  teamId: string;
+  topicId: string;
+  count: number;
+}
+
+export interface VenueRadarAnalysis {
+  journals: SelectedJournalItem[];
+  articleType: ArticleCategory;
+  teamRoleMode: "pi" | "all";
+  yearFrom: number;
+  yearTo: number;
+  query: string;
+  totalMatchingWorks: number;
+  journalCounts: {
+    id: string;
+    name: string;
+    count: number;
+  }[];
+  yearCounts: YearCount[];
+  teams: VenueResearchTeam[];
+  teamEdges: VenueTeamEdge[];
+  topics: VenueTopicCluster[];
+  topicEdges: VenueTopicSynergyEdge[];
+  teamTopicLinks: VenueTeamTopicLink[];
+  hotKeywords: { name: string; count: number }[];
+  topCitedPapers: Paper[];
+  latestPapers: Paper[];
 }
