@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import JournalMultiSelect from "@/components/JournalMultiSelect";
@@ -10,13 +10,17 @@ import { RateLimitHelpBanner } from "@/components/ApiKeyControl";
 import {
   ArticleCategory,
   SelectedJournalItem,
+  SpotlightAuthorItem,
+  VenueFieldScope,
   VenueRadarAnalysis,
 } from "@/lib/types";
 import {
+  FIELD_SCOPES,
   JOURNAL_PRESETS,
   getJournalBadgeStyle,
   resolveJournalName,
 } from "@/lib/journalPresets";
+import { autocompleteAuthors } from "@/lib/openalex";
 import { analyzeVenueLandscape } from "@/lib/venueRadarEngine";
 import {
   Flame,
@@ -35,17 +39,46 @@ import {
   Compass,
   Calendar,
   Play,
+  Star,
+  Plus,
+  Layers,
 } from "lucide-react";
 
 const QUICK_TOPIC_IDEAS = [
+  "intravital",
+  "influenza",
   "T cell exhaustion",
+  "mucosal immunity",
   "CRISPR",
   "spatial transcriptomics",
   "CAR-T",
   "microglia",
-  "protein design",
-  "ferroptosis",
-  "organoid",
+];
+
+const QUICK_SPOTLIGHT_LEGENDS: SpotlightAuthorItem[] = [
+  {
+    id: "A5010263068",
+    name: "Akiko Iwasaki",
+    hint: "Yale / HHMI",
+  },
+  {
+    id: "A5076363097",
+    name: "Yoshihiro Kawaoka",
+    hint: "Univ. of Wisconsin / UTokyo",
+  },
+  {
+    id: "A5073181252",
+    name: "Paul Kubes",
+    hint: "Univ. of Calgary",
+  },
+];
+
+const WINDOW_OPTIONS: { value: number; label: string }[] = [
+  { value: 2, label: "2Y" },
+  { value: 5, label: "5Y" },
+  { value: 10, label: "10Y" },
+  { value: 15, label: "15Y" },
+  { value: 30, label: "All" },
 ];
 
 function parseJournalsFromParams(
@@ -79,29 +112,69 @@ function parseJournalsFromParams(
   return JOURNAL_PRESETS[0].journals;
 }
 
+function parseFieldFromParams(
+  searchParams: ReturnType<typeof useSearchParams>
+): VenueFieldScope {
+  const raw = searchParams.get("field") as VenueFieldScope | null;
+  if (raw && FIELD_SCOPES.some((f) => f.id === raw)) return raw;
+  return "all";
+}
+
+function parseSpotlightsFromParams(
+  searchParams: ReturnType<typeof useSearchParams>
+): SpotlightAuthorItem[] {
+  const idsRaw = searchParams.get("spotlights");
+  const namesRaw = searchParams.get("snames");
+  if (!idsRaw) return [];
+  const ids = idsRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const names = namesRaw ? namesRaw.split("|") : [];
+  return ids.map((id, idx) => ({
+    id: id.startsWith("A") ? id : `A${id}`,
+    name: names[idx] || id,
+  }));
+}
+
 export default function ClientVenues() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentYear = new Date().getFullYear();
 
-  // Draft (staged) filter controls — changing these does NOT fire API calls until Search is clicked!
+  // Staged controls — 0 API calls until Search Radar is clicked!
   const [draftJournals, setDraftJournals] = useState<SelectedJournalItem[]>(() =>
     parseJournalsFromParams(searchParams)
   );
-  const [draftArticleType, setDraftArticleType] = useState<ArticleCategory>(() => {
-    const raw = searchParams.get("articleType");
-    return raw === "review" || raw === "both" ? raw : "research";
-  });
+  const [draftArticleType, setDraftArticleType] = useState<ArticleCategory>(
+    () => {
+      const raw = searchParams.get("articleType");
+      return raw === "review" || raw === "both" ? raw : "research";
+    }
+  );
+  const [draftFieldScope, setDraftFieldScope] = useState<VenueFieldScope>(() =>
+    parseFieldFromParams(searchParams)
+  );
   const [draftYears, setDraftYears] = useState<number>(() => {
-    const raw = parseInt(searchParams.get("years") || "2", 10);
-    return [1, 2, 3, 5].includes(raw) ? raw : 2;
+    const raw = parseInt(searchParams.get("years") || "5", 10);
+    return [2, 5, 10, 15, 30].includes(raw) ? raw : 5;
   });
-  const [draftRole, setDraftRole] = useState<"pi" | "all">(() =>
-    searchParams.get("role") === "all" ? "all" : "pi"
+  const [draftRole, setDraftRole] = useState<"hybrid" | "pi" | "all">(() => {
+    const r = searchParams.get("role");
+    return r === "pi" || r === "all" ? r : "hybrid";
+  });
+  const [draftSpotlights, setDraftSpotlights] = useState<SpotlightAuthorItem[]>(
+    () => parseSpotlightsFromParams(searchParams)
   );
-  const [draftQuery, setDraftQuery] = useState<string>(
-    () => (searchParams.get("q") || "").trim()
+  const [draftQuery, setDraftQuery] = useState<string>(() =>
+    (searchParams.get("q") || "").trim()
   );
+
+  // Zero-credit author autocomplete state
+  const [authorInput, setAuthorInput] = useState("");
+  const [authorSuggestions, setAuthorSuggestions] = useState<
+    SpotlightAuthorItem[]
+  >([]);
+  const [authorDropdownOpen, setAuthorDropdownOpen] = useState(false);
+  const [searchingAuthors, setSearchingAuthors] = useState(false);
+  const authorBoxRef = useRef<HTMLDivElement>(null);
 
   const [analysis, setAnalysis] = useState<VenueRadarAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
@@ -113,33 +186,87 @@ export default function ClientVenues() {
   >({});
   const [paperTab, setPaperTab] = useState<"cited" | "latest">("cited");
 
-  // Sync draft state when navigating from external preset links (without auto-firing unless &run=1)
   useEffect(() => {
     setDraftJournals(parseJournalsFromParams(searchParams));
     const rawArt = searchParams.get("articleType");
     setDraftArticleType(
       rawArt === "review" || rawArt === "both" ? rawArt : "research"
     );
-    const rawYrs = parseInt(searchParams.get("years") || "2", 10);
-    setDraftYears([1, 2, 3, 5].includes(rawYrs) ? rawYrs : 2);
-    setDraftRole(searchParams.get("role") === "all" ? "all" : "pi");
+    setDraftFieldScope(parseFieldFromParams(searchParams));
+    const rawYrs = parseInt(searchParams.get("years") || "5", 10);
+    setDraftYears([2, 5, 10, 15, 30].includes(rawYrs) ? rawYrs : 5);
+    const r = searchParams.get("role");
+    setDraftRole(r === "pi" || r === "all" ? r : "hybrid");
+    setDraftSpotlights(parseSpotlightsFromParams(searchParams));
     setDraftQuery((searchParams.get("q") || "").trim());
   }, [searchParams]);
+
+  // 0-credit author autocomplete debounce
+  useEffect(() => {
+    if (!authorInput.trim() || authorInput.trim().length < 2) {
+      setAuthorSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSearchingAuthors(true);
+      try {
+        const res = await autocompleteAuthors(authorInput.trim());
+        setAuthorSuggestions(res.slice(0, 7));
+        setAuthorDropdownOpen(true);
+      } catch {
+        setAuthorSuggestions([]);
+      } finally {
+        setSearchingAuthors(false);
+      }
+    }, 420);
+    return () => clearTimeout(timer);
+  }, [authorInput]);
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (
+        authorBoxRef.current &&
+        !authorBoxRef.current.contains(e.target as Node)
+      ) {
+        setAuthorDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  const addSpotlight = (item: SpotlightAuthorItem) => {
+    setDraftSpotlights((prev) =>
+      prev.some((s) => s.id === item.id) ? prev : [...prev, item]
+    );
+    setAuthorInput("");
+    setAuthorDropdownOpen(false);
+  };
+
+  const removeSpotlight = (id: string) => {
+    setDraftSpotlights((prev) => prev.filter((s) => s.id !== id));
+  };
 
   const makeSignature = (
     journals: SelectedJournalItem[],
     art: ArticleCategory,
+    field: VenueFieldScope,
     yrs: number,
-    role: "pi" | "all",
+    role: "hybrid" | "pi" | "all",
+    spots: SpotlightAuthorItem[],
     q: string
   ) =>
-    `${journals.map((j) => j.id).join(",")}|${art}|${yrs}|${role}|${q.trim().toLowerCase()}`;
+    `${journals.map((j) => j.id).join(",")}|${art}|${field}|${yrs}|${role}|${spots
+      .map((s) => s.id)
+      .join(",")}|${q.trim().toLowerCase()}`;
 
   const currentDraftSig = makeSignature(
     draftJournals,
     draftArticleType,
+    draftFieldScope,
     draftYears,
     draftRole,
+    draftSpotlights,
     draftQuery
   );
   const isDirty = hasExecuted && currentDraftSig !== lastExecutedSig;
@@ -148,14 +275,18 @@ export default function ClientVenues() {
     async (overrides?: {
       journals?: SelectedJournalItem[];
       articleType?: ArticleCategory;
+      fieldScope?: VenueFieldScope;
       years?: number;
-      role?: "pi" | "all";
+      role?: "hybrid" | "pi" | "all";
+      spotlights?: SpotlightAuthorItem[];
       q?: string;
     }) => {
       const targetJournals = overrides?.journals ?? draftJournals;
       const targetArt = overrides?.articleType ?? draftArticleType;
+      const targetField = overrides?.fieldScope ?? draftFieldScope;
       const targetYears = overrides?.years ?? draftYears;
       const targetRole = overrides?.role ?? draftRole;
+      const targetSpots = overrides?.spotlights ?? draftSpotlights;
       const targetQ =
         overrides?.q !== undefined ? overrides.q.trim() : draftQuery.trim();
 
@@ -164,7 +295,6 @@ export default function ClientVenues() {
         return;
       }
 
-      // Sync URL quietly for shareability
       const params = new URLSearchParams();
       const matchingPreset = JOURNAL_PRESETS.find(
         (pr) =>
@@ -184,16 +314,29 @@ export default function ClientVenues() {
         );
       }
       params.set("articleType", targetArt);
+      if (targetField !== "all") params.set("field", targetField);
       params.set("years", String(targetYears));
-      if (targetRole !== "pi") params.set("role", targetRole);
+      if (targetRole !== "hybrid") params.set("role", targetRole);
+      if (targetSpots.length > 0) {
+        params.set(
+          "spotlights",
+          targetSpots.map((s) => s.id).join(",")
+        );
+        params.set(
+          "snames",
+          targetSpots.map((s) => s.name).join("|")
+        );
+      }
       if (targetQ) params.set("q", targetQ);
       router.replace(`/venues?${params.toString()}`, { scroll: false });
 
       const sig = makeSignature(
         targetJournals,
         targetArt,
+        targetField,
         targetYears,
         targetRole,
+        targetSpots,
         targetQ
       );
 
@@ -205,12 +348,19 @@ export default function ClientVenues() {
         const res = await analyzeVenueLandscape({
           journals: targetJournals,
           articleType: targetArt,
+          fieldScope: targetField,
           teamRoleMode: targetRole,
+          spotlightAuthors: targetSpots,
           yearFrom: currentYear - (targetYears - 1),
           yearTo: currentYear,
           query: targetQ,
         });
         setAnalysis(res);
+        // If engine auto-detected an author name typed in draftQuery, reflect it cleanly in Spotlight pills
+        if (res.spotlightAuthors.length > targetSpots.length) {
+          setDraftSpotlights(res.spotlightAuthors);
+          if (!res.query) setDraftQuery("");
+        }
         setLastExecutedSig(sig);
       } catch (err) {
         setError(
@@ -225,15 +375,16 @@ export default function ClientVenues() {
     [
       draftJournals,
       draftArticleType,
+      draftFieldScope,
       draftYears,
       draftRole,
+      draftSpotlights,
       draftQuery,
       currentYear,
       router,
     ]
   );
 
-  // Only auto-execute when explicitly triggered by SearchBar submit (?run=1)
   useEffect(() => {
     if (searchParams.get("run") === "1" && !hasExecuted && !loading) {
       executeSearch();
@@ -280,7 +431,7 @@ export default function ClientVenues() {
       {/* Header Banner */}
       <div className="space-y-2">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs font-semibold">
-          <Award className="w-3.5 h-3.5" /> Elite Multi-Journal Lab Streaks &amp; Topic Ecosystem
+          <Award className="w-3.5 h-3.5" /> Multi-Journal Lab Streaks · Discipline Scope · Lab Spotlight
         </div>
         <h1 className="text-3xl md:text-4xl font-bold text-white font-space tracking-tight">
           Lab &amp; Journal{" "}
@@ -289,13 +440,14 @@ export default function ClientVenues() {
           </span>
         </h1>
         <p className="text-sm md:text-base text-gray-400 max-w-3xl">
-          Configure your journals (<strong className="text-gray-200">Nature, Cell, Science</strong>,{" "}
-          <strong className="text-gray-200">Nature Immunology + Science Immunology</strong>, etc.) and article type below, then click{" "}
-          <strong className="text-mint-300">Search Radar</strong> to run.
+          Combine <strong className="text-gray-200">CNS + specialty journals</strong> (e.g.,{" "}
+          <strong className="text-gray-200">Immuno + CNS 8 Venues</strong> or{" "}
+          <strong className="text-gray-200">Virology + CNS</strong>), filter by discipline &amp; 2Y–All-Time windows, pin specific labs, and click{" "}
+          <strong className="text-mint-300">Search Radar</strong>.
         </p>
       </div>
 
-      {/* Staged Control Deck (Zero API calls until Search Radar is clicked!) */}
+      {/* Staged Control Deck */}
       <section className="bg-white/[0.02] border border-white/10 rounded-2xl p-5 md:p-6 space-y-5 shadow-xl">
         {/* 1. Multi-Journal Picker */}
         <JournalMultiSelect
@@ -303,30 +455,54 @@ export default function ClientVenues() {
           onChange={setDraftJournals}
         />
 
-        {/* 2. Article Type + Time Window + Team Mode */}
+        {/* 2. Discipline / Field Scope Filter */}
+        <div className="pt-3 border-t border-white/10 space-y-2">
+          <label className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-mint-400" />
+            Discipline Scope (Prevents Physics/Materials from Crowding Out Bio/Virology/Immuno in CNS)
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {FIELD_SCOPES.map((scope) => (
+              <button
+                key={scope.id}
+                type="button"
+                onClick={() => setDraftFieldScope(scope.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  draftFieldScope === scope.id
+                    ? "bg-mint-600 border-mint-500 text-white shadow-sm"
+                    : "bg-black/40 border-white/10 text-gray-300 hover:text-white hover:bg-white/[0.06]"
+                }`}
+              >
+                {scope.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 3. Article Type + Time Window (2Y..All) + Hybrid Lab Ranking */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-3 border-t border-white/10">
           {/* Article Type 3-Way Selector */}
-          <div className="lg:col-span-6 space-y-1.5">
+          <div className="lg:col-span-5 space-y-1.5">
             <label className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold flex items-center gap-1.5">
               <FileText className="w-3.5 h-3.5 text-blue-400" />
               Article Classification
             </label>
-            <div className="grid grid-cols-3 gap-1.5 bg-black/40 p-1 rounded-xl border border-white/10">
+            <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
               <button
                 type="button"
                 onClick={() => setDraftArticleType("research")}
-                className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
                   draftArticleType === "research"
                     ? "bg-blue-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
               >
-                Research (incl. Letters)
+                Research (+Letter)
               </button>
               <button
                 type="button"
                 onClick={() => setDraftArticleType("review")}
-                className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
                   draftArticleType === "review"
                     ? "bg-purple-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
@@ -337,7 +513,7 @@ export default function ClientVenues() {
               <button
                 type="button"
                 onClick={() => setDraftArticleType("both")}
-                className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
                   draftArticleType === "both"
                     ? "bg-emerald-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
@@ -348,75 +524,185 @@ export default function ClientVenues() {
             </div>
           </div>
 
-          {/* Time Window */}
+          {/* Time Window: 2Y / 5Y / 10Y / 15Y / All */}
           <div className="lg:col-span-3 space-y-1.5">
             <label className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-amber-400" />
-              Publication Window
+              Window (5Y–All catches pillars)
             </label>
-            <div className="grid grid-cols-4 gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
-              {[1, 2, 3, 5].map((yr) => (
+            <div className="grid grid-cols-5 gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
+              {WINDOW_OPTIONS.map((opt) => (
                 <button
-                  key={yr}
+                  key={opt.value}
                   type="button"
-                  onClick={() => setDraftYears(yr)}
+                  onClick={() => setDraftYears(opt.value)}
                   className={`py-2 rounded-lg text-xs font-semibold transition-all ${
-                    draftYears === yr
+                    draftYears === opt.value
                       ? "bg-amber-500/25 border border-amber-500/40 text-amber-200"
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  {yr}Y
+                  {opt.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Team Role Mode */}
-          <div className="lg:col-span-3 space-y-1.5">
+          {/* Team Role Mode: Hybrid (Default) / Strict PI / All */}
+          <div className="lg:col-span-4 space-y-1.5">
             <label className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-mint-400" />
-              Lab Ranking Basis
+              Ranking Mode
             </label>
-            <div className="grid grid-cols-2 gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
+            <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
+              <button
+                type="button"
+                onClick={() => setDraftRole("hybrid")}
+                className={`py-2 px-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  draftRole === "hybrid"
+                    ? "bg-mint-600 text-white shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+                title="Combines Corresponding PIs + Last/Senior Authors (catches labs when publisher omits corresponding flag)"
+              >
+                PI + Senior
+              </button>
               <button
                 type="button"
                 onClick={() => setDraftRole("pi")}
-                className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
+                className={`py-2 px-1.5 rounded-lg text-xs font-semibold transition-all ${
                   draftRole === "pi"
                     ? "bg-mint-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
-                title="Rank by Corresponding / Senior Lab Heads"
+                title="Strictly papers with explicit Crossref corresponding_author_ids"
               >
-                Lab PIs
+                Corr. Only
               </button>
               <button
                 type="button"
                 onClick={() => setDraftRole("all")}
-                className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
+                className={`py-2 px-1.5 rounded-lg text-xs font-semibold transition-all ${
                   draftRole === "all"
                     ? "bg-mint-600 text-white shadow"
                     : "text-gray-400 hover:text-white"
                 }`}
-                title="Rank across all co-author positions"
+                title="All co-author positions (capped <=40 authors)"
               >
-                All Authors
+                All Co-Auth
               </button>
             </div>
           </div>
         </div>
 
-        {/* 3. Topic Input + Explicit Search Radar Trigger Button */}
+        {/* 4. Spotlight Specific Researchers / Labs (0-credit autocomplete!) */}
+        <div className="pt-3 border-t border-white/10 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-[11px] uppercase tracking-wider text-cyan-300 font-semibold flex items-center gap-1.5">
+              <Star className="w-3.5 h-3.5 text-cyan-400" />
+              Spotlight Specific Labs / Researchers (Optional — pins any PI directly into the Radar &amp; Network)
+            </label>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-gray-500">Quick add:</span>
+              {QUICK_SPOTLIGHT_LEGENDS.map((leg) => (
+                <button
+                  key={leg.id}
+                  type="button"
+                  onClick={() => addSpotlight(leg)}
+                  className="px-2 py-0.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-200 text-[11px] transition-colors"
+                >
+                  + {leg.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {draftSpotlights.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {draftSpotlights.map((sp) => (
+                <span
+                  key={sp.id}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-xs font-medium"
+                >
+                  <Star className="w-3 h-3 fill-cyan-400 text-cyan-400" />
+                  <span>{sp.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeSpotlight(sp.id)}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="relative" ref={authorBoxRef}>
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input
+              type="text"
+              value={authorInput}
+              onChange={(e) => setAuthorInput(e.target.value)}
+              onFocus={() =>
+                authorSuggestions.length > 0 && setAuthorDropdownOpen(true)
+              }
+              placeholder="Search & pin specific researchers (e.g., Yoshihiro Kawaoka, Akiko Iwasaki, Paul Kubes)..."
+              className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 pl-10 pr-8 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+            />
+            {searchingAuthors && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+            )}
+
+            {authorDropdownOpen && authorSuggestions.length > 0 && (
+              <div className="absolute z-50 top-full mt-1.5 w-full bg-[#0d1322] border border-white/15 rounded-xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto">
+                {authorSuggestions.map((au) => (
+                  <button
+                    key={au.id}
+                    type="button"
+                    onClick={() => addSpotlight(au)}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-white/[0.06] border-b border-white/5 last:border-b-0 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-white truncate">
+                        {au.name}
+                      </div>
+                      <div className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                        {au.hint && (
+                          <span className="truncate max-w-[260px]">
+                            {au.hint}
+                          </span>
+                        )}
+                        {typeof au.citedByCount === "number" && (
+                          <span>
+                            {au.citedByCount.toLocaleString()} citations
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-xs text-cyan-300 flex items-center gap-1">
+                      <Plus className="w-3.5 h-3.5" /> Pin Lab
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 5. Topic Input + Explicit Search Radar Trigger Button */}
         <div className="pt-3 border-t border-white/10 space-y-3">
-          <form onSubmit={handleFormSubmit} className="flex flex-col sm:flex-row gap-2.5">
+          <form
+            onSubmit={handleFormSubmit}
+            className="flex flex-col sm:flex-row gap-2.5"
+          >
             <div className="relative flex-1">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="text"
                 value={draftQuery}
                 onChange={(e) => setDraftQuery(e.target.value)}
-                placeholder="Optional topic filter (e.g., T cell exhaustion, CAR-T, spatial transcriptomics — or leave blank for all fields)..."
+                placeholder="Optional topic/method keyword (e.g., intravital, influenza, mucosal immunity, CAR-T — leave blank for whole field)..."
                 className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-9 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-mint-500 transition-colors"
               />
               {draftQuery && (
@@ -474,21 +760,23 @@ export default function ClientVenues() {
         </div>
       </section>
 
-      {/* Initial Ready State before first Search click */}
+      {/* Initial Ready State */}
       {!hasExecuted && !loading && (
         <div className="py-16 px-6 rounded-2xl border border-dashed border-white/15 bg-white/[0.01] text-center space-y-4">
           <div className="inline-flex p-3.5 rounded-full bg-amber-500/10 text-amber-300">
             <Award className="w-8 h-8" />
           </div>
           <h2 className="text-xl font-bold text-white font-space">
-            Ready to Scan {draftJournals.map((j) => j.name).join(" + ")}
+            Ready to Scan {draftJournals.length} Selected Venue
+            {draftJournals.length > 1 ? "s" : ""} (
+            {currentYear - (draftYears - 1)}–{currentYear})
           </h2>
           <p className="text-sm text-gray-400 max-w-xl mx-auto">
-            Select as many journals as you want above, pick{" "}
-            <strong className="text-gray-200">Research (incl. Letters)</strong>,{" "}
-            <strong className="text-gray-200">Review Only</strong>, or{" "}
-            <strong className="text-gray-200">Both</strong>, and press{" "}
-            <strong className="text-mint-300">Search Radar</strong> to run a single batched query.
+            Tip: To see immunology or virology pillars across both CNS and specialty venues, pick{" "}
+            <strong className="text-cyan-300">Immuno + CNS (8 Venues)</strong> or{" "}
+            <strong className="text-rose-300">Virology &amp; Microbe + CNS</strong> with a{" "}
+            <strong className="text-amber-200">5Y or 10Y</strong> window, then press{" "}
+            <strong className="text-mint-300">Search Radar</strong>.
           </p>
           <button
             type="button"
@@ -506,7 +794,7 @@ export default function ClientVenues() {
         <div className="py-20 flex flex-col items-center justify-center gap-4 text-gray-400">
           <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-sm">
-            Scanning {draftJournals.map((j) => j.name).join(", ")} for streak research teams &amp; topic synergies...
+            Scanning {draftJournals.map((j) => j.name).join(", ")} for top labs, spotlight researchers, and topic links...
           </p>
         </div>
       )}
@@ -530,14 +818,23 @@ export default function ClientVenues() {
                     : analysis.articleType === "review"
                     ? "Review Articles"
                     : "Research & Review Works"}{" "}
-                  published in{" "}
+                  in{" "}
                   <strong className="text-white">
                     {analysis.yearFrom}–{analysis.yearTo}
                   </strong>
+                  {analysis.fieldScope !== "all" && (
+                    <>
+                      {" "}
+                      · Scope:{" "}
+                      <span className="text-mint-300 font-semibold capitalize">
+                        {analysis.fieldScope}
+                      </span>
+                    </>
+                  )}
                   {analysis.query ? (
                     <>
                       {" "}
-                      matching{" "}
+                      · Keyword:{" "}
                       <span className="text-mint-300 font-semibold">
                         &ldquo;{analysis.query}&rdquo;
                       </span>
@@ -588,23 +885,25 @@ export default function ClientVenues() {
             />
           )}
 
-          {/* Streak Research Teams Leaderboard */}
+          {/* Streak & Foundational Research Teams Leaderboard */}
           <section className="space-y-4">
             <div>
               <h2 className="text-2xl font-bold text-white font-space flex items-center gap-2">
                 <Flame className="w-6 h-6 text-amber-400" />
-                High-Frequency &amp; Consecutive Streak Research Teams
+                Leading &amp; Streak Research Teams ({analysis.teams.length})
               </h2>
               <p className="text-sm text-gray-400 mt-0.5">
-                {analysis.teamRoleMode === "pi"
-                  ? "Ranked by Corresponding / Senior PI leadership across your selected journals."
-                  : "Ranked across all authorship positions in your selected journals."}
+                {analysis.teamRoleMode === "hybrid"
+                  ? "Hybrid ranking combining Corresponding PIs and Last/Senior co-investigators across your selected venues."
+                  : analysis.teamRoleMode === "pi"
+                  ? "Ranked strictly by Crossref Corresponding PI records."
+                  : "Ranked across all non-consortium authorship positions."}
               </p>
             </div>
 
             {analysis.teams.length === 0 ? (
               <div className="p-10 rounded-2xl bg-white/[0.02] border border-white/10 text-center text-gray-400 text-sm">
-                No multi-paper research teams matched this exact filter combination. Try widening the year window or clearing the topic filter.
+                No multi-paper research teams matched this exact filter combination. Try widening the year window (5Y or 10Y) or clearing the keyword filter.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -617,15 +916,26 @@ export default function ClientVenues() {
                   return (
                     <div
                       key={team.id}
-                      className="rounded-2xl bg-white/[0.02] border border-white/10 hover:border-white/20 p-5 space-y-4 flex flex-col justify-between transition-colors"
+                      className={`rounded-2xl p-5 space-y-4 flex flex-col justify-between transition-colors border ${
+                        team.isSpotlight
+                          ? "bg-cyan-950/20 border-cyan-400/45 hover:border-cyan-300/60"
+                          : "bg-white/[0.02] border-white/10 hover:border-white/20"
+                      }`}
                     >
                       <div className="space-y-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold px-2 py-0.5 rounded bg-white/10 text-gray-300 font-space">
-                                #{idx + 1}
-                              </span>
+                              {team.isSpotlight ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-200 border border-cyan-400/40">
+                                  <Star className="w-3 h-3 fill-cyan-300" />
+                                  Spotlight
+                                </span>
+                              ) : (
+                                <span className="text-xs font-bold px-2 py-0.5 rounded bg-white/10 text-gray-300 font-space">
+                                  #{idx + 1}
+                                </span>
+                              )}
                               <Link
                                 href={`/author/${team.id}`}
                                 className="text-lg font-bold text-white hover:text-blue-400 transition-colors font-space flex items-center gap-1 truncate"
@@ -655,6 +965,9 @@ export default function ClientVenues() {
                             </div>
                             <div className="text-[10px] uppercase tracking-wider text-gray-500 mt-0.5">
                               venue papers
+                              {team.piLeadCount > 0
+                                ? ` (${team.piLeadCount} PI)`
+                                : ""}
                             </div>
                           </div>
                         </div>

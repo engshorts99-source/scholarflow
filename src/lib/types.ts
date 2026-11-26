@@ -65,6 +65,22 @@ export interface SelectedJournalItem {
   shortName?: string;
 }
 
+export interface SpotlightAuthorItem {
+  id: string;
+  name: string;
+  hint?: string;
+  citedByCount?: number;
+}
+
+export type VenueFieldScope =
+  | "all"
+  | "immunology"
+  | "virology"
+  | "microbiology"
+  | "molecular"
+  | "neuroscience"
+  | "oncology";
+
 export interface Concept {
   id: string;
   displayName: string;
@@ -272,6 +288,7 @@ export interface VenueResearchTeam {
   name: string;
   institution?: string;
   countryCode?: string;
+  isSpotlight?: boolean;
   totalVenuePapers: number;
   sampledPaperCount: number;
   piLeadCount: number;
@@ -335,7 +352,9 @@ export interface VenueTeamTopicLink {
 export interface VenueRadarAnalysis {
   journals: SelectedJournalItem[];
   articleType: ArticleCategory;
-  teamRoleMode: "pi" | "all";
+  fieldScope: VenueFieldScope;
+  teamRoleMode: "hybrid" | "pi" | "all";
+  spotlightAuthors: SpotlightAuthorItem[];
   yearFrom: number;
   yearTo: number;
   query: string;

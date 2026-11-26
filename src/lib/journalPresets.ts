@@ -1,4 +1,4 @@
-import { SelectedJournalItem } from "./types";
+import { SelectedJournalItem, VenueFieldScope } from "./types";
 
 export interface JournalPreset {
   id: string;
@@ -8,6 +8,20 @@ export interface JournalPreset {
   accent: string;
   journals: SelectedJournalItem[];
 }
+
+export const FIELD_SCOPES: {
+  id: VenueFieldScope;
+  label: string;
+  conceptId: string | null;
+}[] = [
+  { id: "all", label: "All Fields", conceptId: null },
+  { id: "immunology", label: "Immunology", conceptId: "C203014093" },
+  { id: "virology", label: "Virology", conceptId: "C159047783" },
+  { id: "microbiology", label: "Microbiology", conceptId: "C89423630" },
+  { id: "molecular", label: "Molecular & Cell Bio", conceptId: "C153911025" },
+  { id: "neuroscience", label: "Neuroscience", conceptId: "C169760540" },
+  { id: "oncology", label: "Oncology & Cancer", conceptId: "C143998085" },
+];
 
 // Verified OpenAlex Source IDs
 export const KNOWN_JOURNALS: Record<string, SelectedJournalItem> = {
@@ -29,6 +43,31 @@ export const KNOWN_JOURNALS: Record<string, SelectedJournalItem> = {
     id: "S22947807",
     name: "Journal of Experimental Medicine",
     shortName: "JEM",
+  },
+  S68384121: {
+    id: "S68384121",
+    name: "Mucosal Immunology",
+    shortName: "Mucosal Immunol.",
+  },
+  S207313999: {
+    id: "S207313999",
+    name: "Cell Host & Microbe",
+    shortName: "Cell Host Microbe",
+  },
+  S2764926557: {
+    id: "S2764926557",
+    name: "Nature Microbiology",
+    shortName: "Nat. Microbiol.",
+  },
+  S24207032: {
+    id: "S24207032",
+    name: "Science Translational Medicine",
+    shortName: "Sci. Transl. Med.",
+  },
+  S114430552: {
+    id: "S114430552",
+    name: "Journal of Clinical Investigation",
+    shortName: "JCI",
   },
   S203256638: {
     id: "S203256638",
@@ -102,23 +141,47 @@ export const JOURNAL_PRESETS: JournalPreset[] = [
     ],
   },
   {
-    id: "immunology",
-    label: "Immunology Elite (Nat Immunol · Sci Immunol · Immunity)",
-    shortLabel: "Immunology Elite",
-    description: "Top-tier immunology venues tracking immune mechanisms & therapy",
-    accent: "from-cyan-500/20 to-blue-500/20 border-cyan-500/40 text-cyan-200",
+    id: "immuno-cns",
+    label: "Immuno + CNS Complete (8 Flagship Venues)",
+    shortLabel: "Immuno + CNS (8 Venues)",
+    description:
+      "Nature, Science, Cell + Nat Immunol, Sci Immunol, Immunity, JEM & Nat Med — captures full immunology lab output",
+    accent: "from-cyan-500/25 to-emerald-500/20 border-cyan-500/45 text-cyan-200",
     journals: [
+      KNOWN_JOURNALS.S137773608,
+      KNOWN_JOURNALS.S3880285,
+      KNOWN_JOURNALS.S110447773,
       KNOWN_JOURNALS.S41063453,
       KNOWN_JOURNALS.S2764653179,
+      KNOWN_JOURNALS.S199671312,
+      KNOWN_JOURNALS.S22947807,
+      KNOWN_JOURNALS.S203256638,
+    ],
+  },
+  {
+    id: "virology-cns",
+    label: "Virology & Microbe + CNS (8 Flagship Venues)",
+    shortLabel: "Virology & Microbe + CNS",
+    description:
+      "Nature, Science, Cell + Cell Host & Microbe, Nat Microbiol, Nat Med, Sci Transl Med & Immunity",
+    accent: "from-rose-500/25 to-amber-500/20 border-rose-500/45 text-rose-200",
+    journals: [
+      KNOWN_JOURNALS.S137773608,
+      KNOWN_JOURNALS.S3880285,
+      KNOWN_JOURNALS.S110447773,
+      KNOWN_JOURNALS.S207313999,
+      KNOWN_JOURNALS.S2764926557,
+      KNOWN_JOURNALS.S203256638,
+      KNOWN_JOURNALS.S24207032,
       KNOWN_JOURNALS.S199671312,
     ],
   },
   {
-    id: "immunology-jem",
-    label: "Immunology + JEM (4 Venues)",
-    shortLabel: "Immunology + JEM",
-    description: "Nature Immunology, Science Immunology, Immunity & JEM",
-    accent: "from-teal-500/20 to-emerald-500/20 border-teal-500/40 text-teal-200",
+    id: "immunology",
+    label: "Immunology Specialty (Nat Immunol · Sci Immunol · Immunity · JEM)",
+    shortLabel: "Immunology Specialty (4)",
+    description: "Dedicated immunology journals including JEM",
+    accent: "from-teal-500/20 to-blue-500/20 border-teal-500/40 text-teal-200",
     journals: [
       KNOWN_JOURNALS.S41063453,
       KNOWN_JOURNALS.S2764653179,
@@ -140,27 +203,16 @@ export const JOURNAL_PRESETS: JournalPreset[] = [
     ],
   },
   {
-    id: "cell-mol",
-    label: "Cell & Molecular (Cell · Mol Cell · Cell Stem Cell)",
-    shortLabel: "Cell & Stem",
-    description: "Core cellular, molecular & stem cell biology venues",
-    accent: "from-purple-500/20 to-indigo-500/20 border-purple-500/40 text-purple-200",
-    journals: [
-      KNOWN_JOURNALS.S110447773,
-      KNOWN_JOURNALS.S156208185,
-      KNOWN_JOURNALS.S128124174,
-    ],
-  },
-  {
     id: "neuro",
-    label: "Neuroscience (Nat Neurosci · Neuron · Science)",
-    shortLabel: "Neuroscience",
+    label: "Neuroscience (Nat Neurosci · Neuron · Science · Nature)",
+    shortLabel: "Neuroscience + CNS",
     description: "Systems, cellular & cognitive neuroscience",
     accent: "from-violet-500/20 to-fuchsia-500/20 border-violet-500/40 text-violet-200",
     journals: [
       KNOWN_JOURNALS.S2298632,
       KNOWN_JOURNALS.S45757444,
       KNOWN_JOURNALS.S3880285,
+      KNOWN_JOURNALS.S137773608,
     ],
   },
   {
@@ -168,7 +220,7 @@ export const JOURNAL_PRESETS: JournalPreset[] = [
     label: "Oncology Elite (Cancer Cell · Nat Cancer · Cancer Discovery)",
     shortLabel: "Cancer Elite",
     description: "Leading cancer biology, tumor immunology & clinical oncology",
-    accent: "from-rose-500/20 to-orange-500/20 border-rose-500/40 text-rose-200",
+    accent: "from-orange-500/20 to-rose-500/20 border-orange-500/40 text-orange-200",
     journals: [
       KNOWN_JOURNALS.S25671836,
       KNOWN_JOURNALS.S4210236562,
@@ -197,8 +249,11 @@ export function getJournalBadgeStyle(journalIdOrName: string): string {
   if (key.includes("immunol") || key === "s41063453" || key === "s2764653179") {
     return "bg-cyan-500/15 text-cyan-300 border-cyan-500/30";
   }
-  if (key === "immunity" || key === "s199671312") {
+  if (key === "immunity" || key === "s199671312" || key === "s22947807") {
     return "bg-teal-500/15 text-teal-300 border-teal-500/30";
+  }
+  if (key.includes("microb") || key === "s207313999" || key === "s2764926557") {
+    return "bg-amber-500/15 text-amber-300 border-amber-500/30";
   }
   if (key.includes("cancer") || key === "s25671836" || key === "s4210236562") {
     return "bg-orange-500/15 text-orange-300 border-orange-500/30";

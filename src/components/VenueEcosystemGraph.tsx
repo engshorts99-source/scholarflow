@@ -280,8 +280,12 @@ export default function VenueEcosystemGraph({
 
           <div className="flex items-center gap-4 text-[11px] text-gray-400">
             <span className="inline-flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+              Spotlight Lab
+            </span>
+            <span className="inline-flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-              Consecutive-Yr Streak Lab
+              Consecutive-Yr Streak
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
@@ -370,7 +374,11 @@ export default function VenueEcosystemGraph({
                   const isSelected =
                     !selectedPair && activeTeam?.id === team.id;
                   const isStreak = team.streakYears >= 2;
-                  const fill = isStreak ? "#f59e0b" : "#3b82f6";
+                  const fill = team.isSpotlight
+                    ? "#22d3ee"
+                    : isStreak
+                    ? "#f59e0b"
+                    : "#3b82f6";
 
                   return (
                     <g

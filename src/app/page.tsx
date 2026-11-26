@@ -5,26 +5,26 @@ import { Compass, Users, Award, Flame, BookOpen } from 'lucide-react';
 
 const RADAR_SHORTCUTS = [
   {
-    label: "CNS Lab Streaks (Nature · Cell · Science)",
-    href: "/venues?preset=cns&articleType=research&years=2",
-    style:
-      "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-200",
-  },
-  {
-    label: "Immunology Elite (Nat Immunol · Sci Immunol · Immunity)",
-    href: "/venues?preset=immunology&articleType=research&years=2",
+    label: "Immuno + CNS Complete (8 Venues · 5Y)",
+    href: "/venues?preset=immuno-cns&field=immunology&articleType=research&years=5",
     style:
       "bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/30 text-cyan-200",
   },
   {
-    label: "Biomed & Biotech (Nat Med · Nat Biotech · Nat Genet)",
-    href: "/venues?preset=biomed&articleType=research&years=2",
+    label: "Virology & Microbe + CNS (8 Venues · 5Y)",
+    href: "/venues?preset=virology-cns&field=virology&articleType=research&years=5",
     style:
-      "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-200",
+      "bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-rose-200",
+  },
+  {
+    label: "CNS Lab Streaks (Nature · Cell · Science)",
+    href: "/venues?preset=cns&articleType=research&years=5",
+    style:
+      "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-200",
   },
   {
     label: "CNS Review Articles Only",
-    href: "/venues?preset=cns&articleType=review&years=2",
+    href: "/venues?preset=cns&articleType=review&years=5",
     style:
       "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30 text-purple-200",
   },

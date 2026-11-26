@@ -6,6 +6,7 @@ import {
   AuthorInstitution,
   JournalProfile,
   ArticleCategory,
+  SpotlightAuthorItem,
 } from "./types";
 
 export const OPENALEX_BASE_URL = "https://api.openalex.org";
@@ -722,6 +723,36 @@ export async function getJournalById(
     homepageUrl: data.homepage_url || null,
     type: data.type || null,
   };
+}
+
+// Zero-credit (0 USD) author autocomplete, sorted by citations desc so main PI profiles always rank #1!
+export async function autocompleteAuthors(
+  query: string
+): Promise<SpotlightAuthorItem[]> {
+  const clean = query.trim();
+  if (clean.length < 2) return [];
+  const url = new URL(`${OPENALEX_BASE_URL}/autocomplete/authors`);
+  url.searchParams.append("q", clean);
+  url.searchParams.append("mailto", MAILTO);
+
+  const data = await fetchOpenAlexJson(url.toString());
+  const rows: Array<{
+    id?: string;
+    display_name?: string;
+    hint?: string;
+    cited_by_count?: number;
+    works_count?: number;
+  }> = data?.results || [];
+
+  return rows
+    .filter((r) => r.id && r.display_name)
+    .sort((a, b) => (b.cited_by_count || 0) - (a.cited_by_count || 0))
+    .map((r) => ({
+      id: normalizeAuthorId(r.id || ""),
+      name: r.display_name || "",
+      hint: r.hint || undefined,
+      citedByCount: r.cited_by_count || 0,
+    }));
 }
 
 // Zero-credit (0 USD) journal autocomplete endpoint!
