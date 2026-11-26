@@ -152,11 +152,14 @@ export async function analyzeVenueLandscape(args: {
   }
   const baseFilter = filterWithoutAuthorCap.join(",");
 
-  // For authorship group_by, cap authors_count:2-40 on research/both to simultaneously exclude 1-author journalists AND 200-author consortia!
+  // For corresponding_author_ids: only exclude 1-author journalism (keep large clinical/multi-lab PI studies like Long COVID Nature papers!).
+  // For authorships.author.id: cap authors_count:2-35 so mega-consortium middle authors don't crowd out lab PIs.
+  const corrFilter =
+    articleType === "review" ? baseFilter : `${baseFilter},authors_count:>1`;
   const nonConsortiumFilter =
     articleType === "review"
       ? baseFilter
-      : `${baseFilter},authors_count:2-40`;
+      : `${baseFilter},authors_count:2-35`;
 
   const selectFields = [
     "id",
@@ -183,9 +186,9 @@ export async function analyzeVenueLandscape(args: {
       teamRoleMode !== "all"
         ? fetchOpenAlexJson(
             buildWorksUrl({
-              filter: nonConsortiumFilter,
+              filter: corrFilter,
               group_by: "corresponding_author_ids",
-              "per-page": "35",
+              "per-page": "50",
             })
           ).catch(() => null)
         : Promise.resolve(null),
@@ -194,7 +197,7 @@ export async function analyzeVenueLandscape(args: {
             buildWorksUrl({
               filter: nonConsortiumFilter,
               group_by: "authorships.author.id",
-              "per-page": "35",
+              "per-page": "50",
             })
           ).catch(() => null)
         : Promise.resolve(null),
@@ -309,13 +312,14 @@ export async function analyzeVenueLandscape(args: {
     const spotlightBoost = c.isSpotlight ? 1_000_000 : 0;
     if (teamRoleMode === "pi") return spotlightBoost + c.piCount * 100 + c.allCount;
     if (teamRoleMode === "all") return spotlightBoost + c.allCount * 100 + c.piCount;
-    // Hybrid mode: rewards both Corresponding PI leadership AND Senior/Co-PI papers where Crossref omitted is_corresponding!
-    return spotlightBoost + c.piCount * 1.35 + c.allCount;
+    // Hybrid mode: strongly weight Corresponding PI leadership (3.5x) so middle co-authors never push out true Lab PIs,
+    // while still capturing Senior/Last-Author PIs when publishers omit is_corresponding.
+    return spotlightBoost + c.piCount * 3.5 + c.allCount;
   };
 
   const selectedCandidates = Array.from(candMap.values())
     .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
-    .slice(0, 28);
+    .slice(0, 32);
 
   const initialVenuePapers = deduplicatePapers(
     (topVenueData?.results || []).map(mapWorkToPaper)
